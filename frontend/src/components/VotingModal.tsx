@@ -8,6 +8,7 @@ interface VotingModalProps {
   leftIds: string[];
   timeLeft: number;
   hasVoted: boolean;
+  votedIds: string[];
   votedTargetId: string;
   onVote: (targetPlayerId: string) => void;
   chatMessages: ChatMessage[];
@@ -17,7 +18,7 @@ interface VotingModalProps {
 const fmt = (secs: number) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
 
 export default function VotingModal({
-  players, myPlayerId, leftIds, timeLeft, hasVoted, votedTargetId, onVote, chatMessages, onSendMessage,
+  players, myPlayerId, leftIds, timeLeft, hasVoted, votedIds, votedTargetId, onVote, chatMessages, onSendMessage,
 }: VotingModalProps) {
   const [draft, setDraft] = useState('');
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -63,10 +64,18 @@ export default function VotingModal({
                     <span className="w-10 h-10 shrink-0 rounded-full bg-white border-2 border-ink flex items-center justify-center text-xl">
                       {p.avatar || '🎨'}
                     </span>
-                    <span className="font-bold text-sm truncate">
-                      {p.name}
-                      {p.id === myPlayerId && <span className="text-ink-soft"> (You)</span>}
-                    </span>
+                    <div className="min-w-0 leading-tight">
+                      <div className="font-bold text-sm truncate">
+                        {p.name}
+                        {p.id === myPlayerId && <span className="text-ink-soft"> (You)</span>}
+                      </div>
+                      {votedIds.includes(p.id) && (
+                        <span className="chip bg-mint text-white mt-1">
+                          <UserCheck size={11} />
+                          Voted
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <button
                     onClick={() => onVote(p.id)}

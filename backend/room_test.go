@@ -284,3 +284,127 @@ func TestPlayersDrawInSeatOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestScoringNeverGoesNegative(t *testing.T) {
+	r := newTestRoom()
+	r.StartGame()
+	defer r.Close()
+
+	impostor := r.ImpostorID
+	var artists []string
+	for _, id := range []string{"a", "b", "c", "d"} {
+		if id != impostor {
+			artists = append(artists, id)
+		}
+	}
+
+	// Two artists catch the Fake Artist, one votes wrongly, the Fake Artist is caught.
+	r.Mutex.Lock()
+	r.Phase = PhaseVoting
+	r.Votes = map[string]string{
+		artists[0]: impostor,
+		artists[1]: impostor,
+		artists[2]: artists[0],
+		impostor:   artists[1],
+	}
+	r.Mutex.Unlock()
+	r.calculateResults()
+
+	score := func(id string) int {
+		r.Mutex.RLock()
+		defer r.Mutex.RUnlock()
+		for _, p := range r.Players {
+			if p.ID == id {
+				return p.Score
+			}
+		}
+		return -1
+	}
+	if score(artists[0]) != pointsSpotFakeArtist || score(artists[1]) != pointsSpotFakeArtist {
+		t.Fatalf("artists who caught the Fake Artist should get %d", pointsSpotFakeArtist)
+	}
+	if score(artists[2]) != 0 {
+		t.Fatalf("a wrong vote should score 0, got %d", score(artists[2]))
+	}
+	if score(impostor) != 0 {
+		t.Fatalf("a caught Fake Artist should score 0, got %d", score(impostor))
+	}
+}
+
+func TestFakeArtistSurvivingScores(t *testing.T) {
+	r := newTestRoom()
+	r.StartGame()
+	defer r.Close()
+
+	impostor := r.ImpostorID
+	other := "a"
+	if impostor == "a" {
+		other = "b"
+	}
+	r.Mutex.Lock()
+	r.Phase = PhaseVoting
+	r.Votes = map[string]string{other: other}
+	r.Mutex.Unlock()
+	r.calculateResults()
+
+	r.Mutex.RLock()
+	defer r.Mutex.RUnlock()
+	for _, p := range r.Players {
+		switch {
+		case p.ID == impostor && p.Score != pointsFakeArtistSurvives:
+			t.Fatalf("surviving Fake Artist got %d, want %d", p.Score, pointsFakeArtistSurvives)
+		case p.ID != impostor && p.Score != 0:
+			t.Fatalf("artist %s got %d, want 0", p.ID, p.Score)
+		}
+	}
+}
+
+func TestTiedVoteLetsFakeArtistOff(t *testing.T) {
+	r := newTestRoom()
+	r.StartGame()
+	defer r.Close()
+
+	impostor := r.ImpostorID
+	var artists []string
+	for _, id := range []string{"a", "b", "c", "d"} {
+		if id != impostor {
+			artists = append(artists, id)
+		}
+	}
+	r.Mutex.Lock()
+	r.Phase = PhaseVoting
+	r.Votes = map[string]string{
+		artists[0]: impostor,
+		artists[1]: artists[0],
+		artists[2]: artists[0],
+		impostor:   impostor,
+	}
+	r.Mutex.Unlock()
+	r.calculateResults()
+
+	r.Mutex.RLock()
+	defer r.Mutex.RUnlock()
+	for _, p := range r.Players {
+		if p.ID == impostor && p.Score != pointsFakeArtistSurvives {
+			t.Fatalf("tied vote should let the Fake Artist off, got %d", p.Score)
+		}
+	}
+}
+
+func TestVoteCannotBeChanged(t *testing.T) {
+	r := newTestRoom()
+	r.StartGame()
+	defer r.Close()
+	r.Mutex.Lock()
+	r.Phase = PhaseVoting
+	r.Mutex.Unlock()
+
+	r.CastVote("a", "b")
+	r.CastVote("a", "c")
+	r.CastVote("a", "a")
+	r.Mutex.RLock()
+	defer r.Mutex.RUnlock()
+	if r.Votes["a"] != "b" || len(r.Votes) != 1 {
+		t.Fatalf("first vote should stand, got %v", r.Votes)
+	}
+}

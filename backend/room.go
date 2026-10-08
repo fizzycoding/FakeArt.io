@@ -14,8 +14,11 @@ const (
 	votingSeconds  = 120
 	strokesPerTurn = 2
 	totalRounds    = 5 // rounds (draw + vote) in one game
-	minPlayers     = 3
-	maxPlayers     = 4
+
+	pointsSpotFakeArtist     = 100 // an artist who votes for the Fake Artist
+	pointsFakeArtistSurvives = 150 // the Fake Artist when the group votes someone else
+	minPlayers               = 3
+	maxPlayers               = 4
 )
 
 type Room struct {
@@ -427,6 +430,10 @@ func (r *Room) CastVote(voterID, targetID string) {
 		r.Mutex.Unlock()
 		return
 	}
+	if _, already := r.Votes[voterID]; already {
+		r.Mutex.Unlock() // a vote is final
+		return
+	}
 	r.Votes[voterID] = targetID
 	allVoted := len(r.Votes) >= len(r.Players)
 	r.Mutex.Unlock()
@@ -462,28 +469,27 @@ func (r *Room) calculateResults() {
 	for _, target := range r.Votes {
 		voteCounts[target]++
 	}
-	topVotedID, maxVotes := "", -1
+	// The Fake Artist is caught only with strictly the most votes; a tie lets
+	// them off, so the result never depends on map ordering.
+	impostorVotes := voteCounts[r.ImpostorID]
+	impostorCaught := impostorVotes > 0
 	for id, count := range voteCounts {
-		if count > maxVotes {
-			maxVotes, topVotedID = count, id
+		if id != r.ImpostorID && count >= impostorVotes {
+			impostorCaught = false
 		}
 	}
-	impostorCaught := topVotedID == r.ImpostorID && maxVotes > 0
 
 	scoreDeltas := make(map[string]int)
 	totalScores := make(map[string]int)
 	for _, p := range r.Players {
+		// Nobody ever loses points: a miss simply scores nothing.
 		delta := 0
 		if p.ID == r.ImpostorID {
-			if impostorCaught {
-				delta = -50
-			} else {
-				delta = 75
+			if !impostorCaught {
+				delta = pointsFakeArtistSurvives
 			}
 		} else if r.Votes[p.ID] == r.ImpostorID {
-			delta = 25
-		} else {
-			delta = -25
+			delta = pointsSpotFakeArtist
 		}
 		scoreDeltas[p.ID] = delta
 		p.Score += delta
@@ -592,6 +598,10 @@ func (r *Room) TryJoinMidGame(p *Player) bool {
 		drawRound = (r.CurrentTurn-1)/n + 1
 	}
 	strokes := append([]StrokeData(nil), r.Strokes...)
+	voted := make([]string, 0, len(r.Votes))
+	for voter := range r.Votes {
+		voted = append(voted, voter)
+	}
 	snapshot := map[string]interface{}{
 		"word":           word,
 		"roundNumber":    r.MatchCount,
@@ -603,6 +613,7 @@ func (r *Room) TryJoinMidGame(p *Player) bool {
 		"drawRound":      drawRound,
 		"totalRounds":    drawRounds,
 		"strokes":        strokes,
+		"voted":          voted,
 	}
 	players := r.summariesLocked()
 	r.Mutex.Unlock()

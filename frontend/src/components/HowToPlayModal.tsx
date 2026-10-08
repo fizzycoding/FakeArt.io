@@ -28,7 +28,7 @@ const STEPS = [
   {
     icon: '⭐',
     title: 'Score points',
-    text: 'Catch the Fake Artist: +25. Miss them: −25. The Fake Artist gets +75 if not caught, −50 if caught.',
+    text: 'Vote for the Fake Artist and get +100. The Fake Artist gets +150 if nobody catches them. Missed? You just get 0. No points are ever lost!',
   },
   {
     icon: '🏆',

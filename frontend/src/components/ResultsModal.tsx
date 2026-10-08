@@ -121,8 +121,8 @@ export default function ResultsModal({ results, players, roundNumber, maxRounds,
                   <span className="text-xs font-semibold text-ink-soft">
                     {targetPlayer ? `Voted: ${targetPlayer.name}` : 'No vote'}
                   </span>
-                  <span className={`font-display font-bold ${delta >= 0 ? 'text-mint' : 'text-cherry'}`}>
-                    {delta >= 0 ? `+${delta}` : delta} pts
+                  <span className={`font-display font-bold ${delta > 0 ? 'text-mint' : 'text-ink-soft'}`}>
+                    {delta > 0 ? `+${delta}` : '0'} pts
                   </span>
                 </div>
               </div>

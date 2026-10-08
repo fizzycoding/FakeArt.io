@@ -8,6 +8,7 @@ import ResultsModal from './components/ResultsModal';
 import ProfileModal from './components/ProfileModal';
 import HowToPlayModal from './components/HowToPlayModal';
 import { startBackgroundMusic } from './utils/music';
+import { initSfx, sfx } from './utils/sfx';
 import MatchmakingScreen from './components/MatchmakingScreen';
 import { 
   Player, StrokeData, ChatMessage, RoundResults, PlayerProfile, GamePhase 
@@ -70,12 +71,16 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [votedTargetId, setVotedTargetId] = useState('');
   const [hasVoted, setHasVoted] = useState(false);
+  const [votedIds, setVotedIds] = useState<string[]>([]);
+  // The socket handlers are created once, so they read the player id from a ref.
+  const myIdRef = useRef('');
   const [roundResults, setRoundResults] = useState<RoundResults | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     startBackgroundMusic();
+    initSfx();
   }, []);
 
   useEffect(() => {
@@ -92,9 +97,18 @@ export default function App() {
 
   useEffect(() => {
     if (!matchFound || matchCountdown <= 0) return;
+    sfx.tick();
     const t = setTimeout(() => setMatchCountdown((c) => Math.max(0, c - 1)), 1000);
     return () => clearTimeout(t);
   }, [matchFound, matchCountdown]);
+
+  // Tick through the last seconds of your own turn and of voting.
+  useEffect(() => {
+    if (screen !== 'GAME' || phaseTimeLeft <= 0 || phaseTimeLeft > 5) return;
+    const myTurn = currentPhase === 'DRAWING' && activeDrawerId === myPlayerId;
+    if (myTurn || currentPhase === 'VOTING') sfx.tick();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only the clock should trigger a tick
+  }, [phaseTimeLeft]);
 
   const connectWebSocket = (onOpenCallback?: () => void) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -142,6 +156,7 @@ export default function App() {
 
     switch (msgType) {
       case 'PLAYER_INFO':
+        myIdRef.current = payload.id;
         setMyPlayerId(payload.id);
         break;
 
@@ -167,9 +182,11 @@ export default function App() {
         setQueuePlayers(payload.players || []);
         setMatchCountdown(payload.countdown || 5);
         setMatchFound(true);
+        sfx.matchFound();
         break;
 
       case 'PLAYER_LEFT':
+        sfx.playerLeft();
         setLeftIds((prev) => (prev.includes(payload.playerId) ? prev : [...prev, payload.playerId]));
         break;
 
@@ -182,6 +199,7 @@ export default function App() {
         break;
 
       case 'START_ROUND':
+        sfx.roundStart();
         setMatchFound(false);
         setLeftIds([]);
         triggerGameplayStart();
@@ -192,6 +210,7 @@ export default function App() {
         setRemoteStrokes([]);
         setChatMessages([]);
         setHasVoted(false);
+        setVotedIds([]);
         setVotedTargetId('');
         setRoundResults(null);
         setScreen('GAME');
@@ -214,21 +233,25 @@ export default function App() {
         setRemoteStrokes(payload.strokes || []);
         setChatMessages([]);
         setHasVoted(false);
+        setVotedIds(payload.voted || []);
         setVotedTargetId('');
         setRoundResults(null);
         setScreen('GAME');
         break;
 
       case 'PLAYER_JOINED':
+        sfx.blip();
         setPlayers(payload.players || []);
         setLeftIds([]);
         break;
 
       case 'CHAT_MESSAGE':
+        if (payload.senderId !== myIdRef.current) sfx.message();
         setChatMessages((prev) => [...prev, payload]);
         break;
 
       case 'TURN_CHANGE':
+        if (payload.drawerId === myIdRef.current) sfx.yourTurn();
         setActiveDrawerId(payload.drawerId);
         setDrawRound(payload.drawRound || 1);
         setTotalDrawRounds(payload.totalRounds || 4);
@@ -239,6 +262,7 @@ export default function App() {
         setCurrentPhase(payload.phase);
         setPhaseTimeLeft(payload.durationSeconds);
         if (payload.phase === 'VOTING') {
+          sfx.votingStart();
           triggerHappyTime();
         }
         break;
@@ -253,17 +277,23 @@ export default function App() {
         break;
 
       case 'VOTE_REGISTERED':
-        if (payload.voterId === myPlayerId) {
+        setVotedIds((prev) => (prev.includes(payload.voterId) ? prev : [...prev, payload.voterId]));
+        if (payload.voterId === myIdRef.current) {
           setHasVoted(true);
+          sfx.voteCast();
+        } else {
+          sfx.blip();
         }
         break;
 
       case 'ROUND_RESULTS':
+        if (payload.isGameOver) sfx.victory();
+        else sfx.roundEnd();
         setRoundResults(payload);
         setCurrentPhase('RESULTS');
-        if (payload.isGameOver && payload.totalScores && payload.totalScores[myPlayerId] !== undefined) {
+        if (payload.isGameOver && payload.totalScores && payload.totalScores[myIdRef.current] !== undefined) {
           const best = Math.max(...(Object.values(payload.totalScores) as number[]));
-          const won = payload.totalScores[myPlayerId] === best;
+          const won = payload.totalScores[myIdRef.current] === best;
           setProfile((prev) => ({
             ...prev,
             matchesPlayed: prev.matchesPlayed + 1,
@@ -344,6 +374,7 @@ export default function App() {
   const handleCastVote = (targetPlayerId: string) => {
     if (hasVoted) return;
     setVotedTargetId(targetPlayerId);
+    setHasVoted(true); // votes are final, so lock right away
     sendWSMessage('CAST_VOTE', { targetPlayerId });
   };
 
@@ -361,6 +392,7 @@ export default function App() {
     setRemoteStrokes([]);
     setChatMessages([]);
     setHasVoted(false);
+    setVotedIds([]);
     setVotedTargetId('');
     setConnError('');
     setScreen('MENU');
@@ -384,7 +416,7 @@ export default function App() {
             aria-label="Back to menu"
           >
             <ArrowLeft size={16} />
-            <span className="logo !rotate-0 !text-lg">Fake<em>Art</em>.io</span>
+            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="FakeArt.io" draggable={false} className="h-7 w-auto" />
           </button>
         )}
 
@@ -407,13 +439,14 @@ export default function App() {
         {screen === 'MENU' && (
           <div className="flex flex-col items-center gap-9 w-full max-w-sm -mt-10 pop-in">
             {/* Logo */}
-            <div className="relative px-6">
-              <span className="logo-spark -left-1 top-2 rotate-[30deg]" />
-              <span className="logo-spark -right-1 top-3 -rotate-[30deg]" />
-              <h1 className="logo wobble text-6xl sm:text-7xl">
-                Fake<em>Art</em>.io
-              </h1>
-            </div>
+            <h1>
+              <img
+                src={`${import.meta.env.BASE_URL}logo.png`}
+                alt="FakeArt.io"
+                draggable={false}
+                className="w-[400px] max-w-none h-auto select-none"
+              />
+            </h1>
 
             <div className="flex flex-col gap-4 w-full">
               <button onClick={handleQuickMatch} className="btn btn-primary w-full py-4 text-2xl">
@@ -457,11 +490,6 @@ export default function App() {
             {connError && (
               <p className="text-cherry text-sm font-bold text-center">{connError}</p>
             )}
-
-            <p className="text-ink-soft text-sm font-semibold text-center max-w-xs leading-relaxed">
-              Two strokes each. One of you has a different word.
-              Spot the Fake Artist!
-            </p>
           </div>
         )}
 
@@ -556,6 +584,7 @@ export default function App() {
             maxMatches={maxMatches}
             leftIds={leftIds}
             hasVoted={hasVoted}
+            votedIds={votedIds}
             votedTargetId={votedTargetId}
             onVote={handleCastVote}
             chatMessages={chatMessages}

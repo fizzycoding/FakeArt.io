@@ -10,11 +10,12 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+# The single-file build is large; recreate it with "npm run build:standalone"
+standalone
 *.local
 .env
 .env.*
 !.env.example
-!.env.production.example
 
 # Editor directories and files
 .vscode/*

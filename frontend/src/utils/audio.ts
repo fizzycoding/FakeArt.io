@@ -2,7 +2,8 @@
 // effects both obey it. Sound is muted whenever ANY reason is active:
 //   "sdk" - CrazyGames asked for it (game.settings.muteAudio)
 //   "ad"  - a video ad is playing
-export type MuteReason = 'sdk' | 'ad';
+//   "user" - the player pressed the speaker button
+export type MuteReason = 'sdk' | 'ad' | 'user';
 
 const reasons = new Set<MuteReason>();
 const listeners = new Set<() => void>();
@@ -14,6 +15,8 @@ export const setMuted = (reason: MuteReason, muted: boolean): void => {
 };
 
 export const isMuted = (): boolean => reasons.size > 0;
+export const isUserMuted = (): boolean => reasons.has('user');
+export const isSdkMuted = (): boolean => reasons.has('sdk');
 
 export const onMuteChange = (fn: () => void): (() => void) => {
   listeners.add(fn);

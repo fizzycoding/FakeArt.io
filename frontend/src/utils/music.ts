@@ -1,6 +1,7 @@
 import { isMuted, onMuteChange } from './audio';
+import { assetUrl } from './assets';
 
-const VOLUME = 0.12;
+const VOLUME = 0.07;
 
 let audio: HTMLAudioElement | null = null;
 
@@ -12,7 +13,7 @@ let audio: HTMLAudioElement | null = null;
 export const startBackgroundMusic = (): void => {
   if (audio) return;
 
-  audio = new Audio(`${import.meta.env.BASE_URL}music.mp3`);
+  audio = new Audio(assetUrl('music.mp3'));
   audio.loop = true;
   audio.volume = VOLUME;
   // Silenced while CrazyGames asks for it or a video ad is playing.

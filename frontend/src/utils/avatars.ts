@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { assetUrl } from './assets';
 
 // Avatars are the images public/pfp1.webp, pfp2.webp, pfp3.webp, ... and are
 // referred to everywhere (profile, server, other players) by their id: "pfp1".
@@ -12,7 +13,7 @@ export const isAvatarId = (value: unknown): value is string =>
 /** Anything that isn't a valid id (old emoji profiles, junk) becomes the default. */
 export const normalizeAvatar = (value: unknown): string => (isAvatarId(value) ? value : DEFAULT_AVATAR);
 
-export const avatarSrc = (id: unknown): string => `${import.meta.env.BASE_URL}${normalizeAvatar(id)}.webp`;
+export const avatarSrc = (id: unknown): string => assetUrl(`${normalizeAvatar(id)}.webp`);
 
 // Vite lists the avatar files at build time, so adding public/pfp6.webp is
 // enough and the game never has to request a file that doesn't exist.

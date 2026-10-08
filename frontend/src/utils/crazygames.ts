@@ -2,7 +2,7 @@ import { setMuted } from './audio';
 
 // CrazyGames HTML5 SDK v3 wrapper.
 //
-// The SDK only works on localhost ("local") and on CrazyGames ("crazygames").
+// The SDK only works in its local test mode ("local") and on CrazyGames ("crazygames").
 // Anywhere else (or if the script is blocked) its environment is "disabled"
 // and every call would throw, so each function here quietly does nothing
 // unless the SDK is actually usable. The game therefore runs the same
@@ -308,3 +308,8 @@ export const setRoomCredit = (value: 0 | 1): void => writeSaved(CREDIT_KEY, Stri
 const TUTORIAL_KEY = 'fakeart_tutorial_done';
 export const isTutorialDone = (): boolean => readSaved(TUTORIAL_KEY) === '1';
 export const markTutorialDone = (): void => writeSaved(TUTORIAL_KEY, '1');
+
+// The player's sound choice from the speaker button.
+const SOUND_MUTED_KEY = 'fakeart_sound_muted';
+export const isSoundMutedSaved = (): boolean => readSaved(SOUND_MUTED_KEY) === '1';
+export const saveSoundMuted = (muted: boolean): void => writeSaved(SOUND_MUTED_KEY, muted ? '1' : '0');

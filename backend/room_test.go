@@ -501,6 +501,7 @@ func TestOriginCheck(t *testing.T) {
 	}
 	ok := [][2]string{
 		{"", "game.example.com"},
+		{"null", "game.example.com"}, // opened from a file
 		{"http://localhost:5173", "game.example.com"},
 		{"https://game.example.com", "game.example.com"},
 		{"https://www.crazygames.com", "game.example.com"},

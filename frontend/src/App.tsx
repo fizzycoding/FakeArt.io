@@ -7,8 +7,11 @@ import Stage from './components/Stage';
 import ResultsModal from './components/ResultsModal';
 import ProfileModal from './components/ProfileModal';
 import TutorialModal from './components/TutorialModal';
+import SoundToggle from './components/SoundToggle';
 import { startBackgroundMusic } from './utils/music';
 import { initSfx, sfx } from './utils/sfx';
+import { setMuted } from './utils/audio';
+import { assetUrl } from './utils/assets';
 import Avatar from './components/Avatar';
 import { DEFAULT_AVATAR, loadAvatarList, normalizeAvatar } from './utils/avatars';
 import MatchmakingScreen from './components/MatchmakingScreen';
@@ -19,18 +22,13 @@ import {
   initCrazyGamesSDK, isSdkUsable, loadingStart, loadingStop, triggerGameplayStart, triggerGameplayStop,
   triggerHappyTime, requestRewardedAd, hasAdblock, isChatDisabled, getCrazyGamesUsername, shareRoom,
   leaveSharedRoom, getInviteLink, getInviteRoomCode, onInviteJoin, AdFailure, getRoomCredit, setRoomCredit,
-  isTutorialDone, markTutorialDone,
+  isTutorialDone, markTutorialDone, isSoundMutedSaved,
 } from './utils/crazygames';
 
-const getWebSocketUrl = (): string => {
-  if (import.meta.env.VITE_WS_URL) {
-    return import.meta.env.VITE_WS_URL;
-  }
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return import.meta.env.PROD
-    ? `${protocol}//${window.location.host}/ws`
-    : 'ws://localhost:8080/ws';
-};
+// The hosted game server. To use a different one, set VITE_WS_URL (see .env.example).
+const DEFAULT_WS_URL = 'wss://fakeart-server.onrender.com/ws';
+
+const getWebSocketUrl = (): string => import.meta.env.VITE_WS_URL || DEFAULT_WS_URL;
 
 const WS_URL = getWebSocketUrl();
 
@@ -118,6 +116,7 @@ export default function App() {
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
+    setMuted('user', isSoundMutedSaved()); // the player's last choice, before any sound can start
     startBackgroundMusic();
     initSfx();
   }, []);
@@ -138,6 +137,7 @@ export default function App() {
       if (alive) {
         setRoomCreditState(getRoomCredit());
         setTutorialDone(isTutorialDone());
+        setMuted('user', isSoundMutedSaved());
         setAdGated(isSdkUsable());
         setChatOff(isChatDisabled());
       }
@@ -682,7 +682,7 @@ export default function App() {
             {/* Logo */}
             <h1>
               <img
-                src={`${import.meta.env.BASE_URL}logo.webp`}
+                src={assetUrl('logo.webp')}
                 alt="FakeArt.io"
                 draggable={false}
                 className="w-[400px] max-w-none h-auto select-none"
@@ -898,6 +898,8 @@ export default function App() {
           onClose={() => setShowProfile(false)}
         />
       )}
+
+      <SoundToggle />
 
       {showConnecting && (
         <div className="absolute inset-0 z-[90] flex flex-col items-center justify-center gap-4 bg-ink/40 backdrop-blur-sm px-8 text-center">

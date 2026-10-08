@@ -54,6 +54,9 @@ func checkOrigin(r *http.Request) bool {
 	if origin == "" {
 		return true // not a browser
 	}
+	if origin == "null" {
+		return true // the game opened straight from a file on someone's computer (standalone HTML)
+	}
 	u, err := url.Parse(origin)
 	if err != nil {
 		return false
@@ -109,7 +112,7 @@ func main() {
 		srv.Shutdown(ctx)
 	}()
 
-	fmt.Printf("Server running on http://localhost:%s\n", port)
+	fmt.Printf("Server listening on port %s\n", port)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("Server error: %v", err)
 	}

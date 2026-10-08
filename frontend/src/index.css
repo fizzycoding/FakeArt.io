@@ -166,3 +166,55 @@
   .wobble, .pulse-active, .pop-in { animation: none; }
   .btn { transition: none; }
 }
+
+/* ---------- Matchmaking screen ---------- */
+
+.match-bg {
+  background-color: #efe8ff;
+  background-image:
+    radial-gradient(circle at 15% 20%, rgba(255, 79, 184, 0.16), transparent 40%),
+    radial-gradient(circle at 85% 80%, rgba(164, 71, 255, 0.22), transparent 45%),
+    radial-gradient(rgba(138, 43, 226, 0.22) 2px, transparent 2px);
+  background-size: auto, auto, 28px 28px;
+}
+
+.match-blob {
+  position: absolute;
+  border-radius: 9999px;
+  border: 2px solid rgba(138, 43, 226, 0.25);
+  pointer-events: none;
+  animation: blobDrift 9s ease-in-out infinite alternate;
+}
+
+.match-blob-a { width: 260px; height: 260px; background: rgba(164, 71, 255, 0.14); top: -90px; right: -70px; }
+.match-blob-b { width: 220px; height: 220px; background: rgba(255, 79, 184, 0.14); bottom: -80px; left: -60px; animation-delay: -4s; }
+
+@keyframes blobDrift {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(-20px, 30px) scale(1.1); }
+}
+
+/* Hard, quick cut for flashing avatars and countdown ticks */
+@keyframes matchCut {
+  0% { transform: scale(1.35) rotate(-8deg); opacity: 0.3; }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+
+.match-cut {
+  display: inline-block;
+  animation: matchCut 0.14s ease-out both;
+}
+
+@keyframes slotLock {
+  0% { transform: scale(0.6); }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+.match-lock {
+  animation: slotLock 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.3) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .match-blob, .match-cut, .match-lock { animation: none; }
+}

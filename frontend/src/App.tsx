@@ -7,6 +7,7 @@ import PlayerCard from './components/PlayerCard';
 import ChatPanel from './components/ChatPanel';
 import ResultsModal from './components/ResultsModal';
 import ProfileModal from './components/ProfileModal';
+import MatchmakingScreen from './components/MatchmakingScreen';
 import { 
   Player, StrokeData, ChatMessage, RoundResults, PlayerProfile, GamePhase 
 } from './types/game';
@@ -46,7 +47,9 @@ export default function App() {
   const [connError, setConnError] = useState('');
   const [isCustomRoom, setIsCustomRoom] = useState(false);
   const [hostId, setHostId] = useState('');
-  const [queueWaiting, setQueueWaiting] = useState(1);
+  const [queuePlayers, setQueuePlayers] = useState<Player[]>([]);
+  const [matchFound, setMatchFound] = useState(false);
+  const [matchCountdown, setMatchCountdown] = useState(5);
   
   const [myPlayerId, setMyPlayerId] = useState('');
   const [players, setPlayers] = useState<Player[]>([]);
@@ -79,6 +82,12 @@ export default function App() {
     }, 1000);
     return () => clearInterval(timer);
   }, [phaseTimeLeft]);
+
+  useEffect(() => {
+    if (!matchFound || matchCountdown <= 0) return;
+    const t = setTimeout(() => setMatchCountdown((c) => Math.max(0, c - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [matchFound, matchCountdown]);
 
   const connectWebSocket = (onOpenCallback?: () => void) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -141,10 +150,17 @@ export default function App() {
         break;
 
       case 'QUEUE_UPDATE':
-        setQueueWaiting(payload.waiting || 1);
+        setQueuePlayers(payload.players || []);
+        break;
+
+      case 'MATCH_FOUND':
+        setQueuePlayers(payload.players || []);
+        setMatchCountdown(payload.countdown || 5);
+        setMatchFound(true);
         break;
 
       case 'GAME_ABORTED':
+        setMatchFound(false);
         setConnError(payload.message || 'The game ended.');
         triggerGameplayStop();
         setCurrentPhase('LOBBY');
@@ -152,6 +168,7 @@ export default function App() {
         break;
 
       case 'START_ROUND':
+        setMatchFound(false);
         triggerGameplayStart();
         setSecretWord(payload.word || '');
         setRoundNumber(payload.roundNumber || 1);
@@ -228,7 +245,8 @@ export default function App() {
         avatar: profile.avatar
       });
       setIsCustomRoom(false);
-      setQueueWaiting(1);
+      setQueuePlayers([]);
+      setMatchFound(false);
       setScreen('LOBBY');
     });
   };
@@ -264,6 +282,7 @@ export default function App() {
 
   const handleLeaveLobby = () => {
     sendWSMessage('LEAVE_ROOM');
+    setMatchFound(false);
     setScreen('MENU');
   };
 
@@ -286,6 +305,7 @@ export default function App() {
   };
 
   const handleReturnToMenu = () => {
+    setMatchFound(false);
     triggerGameplayStop();
     if (wsRef.current) {
       wsRef.current.close();
@@ -393,7 +413,18 @@ export default function App() {
           </div>
         )}
 
-        {screen === 'LOBBY' && (
+        {screen === 'LOBBY' && !isCustomRoom && (
+          <MatchmakingScreen
+            players={queuePlayers}
+            self={{ id: myPlayerId, name: profile.name, avatar: profile.avatar }}
+            matchFound={matchFound}
+            countdown={matchCountdown}
+            error={connError}
+            onCancel={handleLeaveLobby}
+          />
+        )}
+
+        {screen === 'LOBBY' && isCustomRoom && (
           <div className="card p-8 max-w-md w-full flex flex-col gap-6 items-center text-center pop-in">
             <div className="w-16 h-16 rounded-full bg-grape-soft border-2 border-ink flex items-center justify-center text-grape-dark">
               <Users size={30} />
@@ -401,25 +432,17 @@ export default function App() {
 
             <div>
               <h3 className="font-display text-3xl font-bold">
-                {isCustomRoom ? (
-                  <>Room <span className="text-grape tracking-widest">{roomCode}</span></>
-                ) : (
-                  'Finding a match…'
-                )}
+                Room <span className="text-grape tracking-widest">{roomCode}</span>
               </h3>
               <p className="text-ink-soft text-sm font-semibold mt-1">
-                {isCustomRoom
-                  ? `Players (${players.length}/4)`
-                  : `${queueWaiting}/4 players found`}
+                {`Players (${players.length}/4)`}
               </p>
             </div>
 
             {/* Slot indicators */}
             <div className="flex gap-3 justify-center w-full">
               {[0, 1, 2, 3].map((idx) => {
-                const p = isCustomRoom
-                  ? players[idx]
-                  : idx < queueWaiting ? { avatar: idx === 0 ? profile.avatar : '🎨', name: idx === 0 ? 'You' : 'Artist', id: String(idx) } : undefined;
+                const p = players[idx];
                 return (
                   <div
                     key={idx}

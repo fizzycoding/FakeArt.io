@@ -45,11 +45,31 @@ func TestPublicQueueEndToEnd(t *testing.T) {
 	defer mux.Close()
 	url := "ws" + strings.TrimPrefix(mux.URL, "http") + "/ws"
 
+	matchCountdown = 100 * time.Millisecond
+	defer func() { matchCountdown = 5 * time.Second }()
+
 	conns := make([]*websocket.Conn, 4)
 	for i := range conns {
 		conns[i] = dial(t, url)
 		defer conns[i].Close()
 		send(conns[i], "JOIN_QUEUE", map[string]string{"name": "p"})
+	}
+
+	var order string
+	for _, c := range conns {
+		found := waitFor(t, c, "MATCH_FOUND")
+		var ids []string
+		for _, pl := range found["players"].([]interface{}) {
+			ids = append(ids, pl.(map[string]interface{})["id"].(string))
+		}
+		if len(ids) != 4 {
+			t.Fatalf("MATCH_FOUND should list 4 players, got %v", ids)
+		}
+		if joined := strings.Join(ids, ","); order == "" {
+			order = joined
+		} else if order != joined {
+			t.Fatalf("player order differs between clients: %v vs %v", order, joined)
+		}
 	}
 
 	words := map[string]int{}

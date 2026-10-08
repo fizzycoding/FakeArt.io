@@ -1,5 +1,10 @@
 package main
 
+import "time"
+
+// matchCountdown is how long a found match waits before the game begins.
+var matchCountdown = 5 * time.Second
+
 // Matchmaker owns the public queue from a single goroutine, so it needs no
 // locks. The queue never holds more than roomSize-1 players because a room is
 // created the moment enough have gathered, which keeps every operation O(1).
@@ -80,15 +85,26 @@ func (m *Matchmaker) match() {
 		m.queue = append([]*Player(nil), m.queue[maxPlayers:]...)
 
 		room := globalHub.CreatePublicMatch(group)
-		go room.StartGame()
+		room.Broadcast("MATCH_FOUND", map[string]interface{}{
+			"players":   room.summaries(),
+			"countdown": int(matchCountdown / time.Second),
+			"roomCode":  room.Code,
+		})
+		go room.StartAfter(matchCountdown)
 	}
 }
 
 func (m *Matchmaker) notify() {
+	// Everyone sees the same queue order, so slots line up across clients.
+	players := make([]PlayerSummary, len(m.queue))
+	for i, p := range m.queue {
+		players[i] = PlayerSummary{ID: p.ID, Name: p.Name, Avatar: p.Avatar, Score: p.Score}
+	}
 	for _, p := range m.queue {
 		p.SendMsg("QUEUE_UPDATE", map[string]interface{}{
 			"waiting":  len(m.queue),
 			"required": maxPlayers,
+			"players":  players,
 		})
 	}
 }

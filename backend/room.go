@@ -105,6 +105,8 @@ func (r *Room) RemovePlayer(playerID string) {
 	switch {
 	case remaining == 0:
 		r.Close()
+	case phase == PhaseLobby && !r.IsCustom:
+		r.abort("A player left before the match started.")
 	case phase == PhaseLobby:
 		r.broadcastLobby()
 	case phase == PhaseClosed:
@@ -178,11 +180,17 @@ func (r *Room) Broadcast(msgType string, payload interface{}) {
 // HostStart lets a private room's host begin once enough players have joined.
 func (r *Room) HostStart(playerID string) {
 	r.Mutex.RLock()
-	ok := r.HostID == playerID && r.Phase == PhaseLobby && len(r.Players) >= minPlayers
+	ok := r.IsCustom && r.HostID == playerID && r.Phase == PhaseLobby && len(r.Players) >= minPlayers
 	r.Mutex.RUnlock()
 	if ok {
 		r.StartGame()
 	}
+}
+
+// StartAfter begins the game once the pre-match countdown has elapsed.
+func (r *Room) StartAfter(d time.Duration) {
+	time.Sleep(d)
+	r.StartGame()
 }
 
 func (r *Room) StartGame() {

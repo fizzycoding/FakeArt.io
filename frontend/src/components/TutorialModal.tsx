@@ -1,20 +1,22 @@
 import { useState } from 'react';
 import { ArrowLeft, ArrowRight, Check } from 'lucide-react';
-import { HOW_TO_PLAY_STEPS } from './howToPlaySteps';
+import { TUTORIAL_STEPS } from './howToPlaySteps';
 
 interface TutorialModalProps {
   /** The player went through every step. */
   onComplete: () => void;
-  /** The player chose to skip the tutorial. */
+  /** The player chose to skip (or close) the tutorial. */
   onSkip: () => void;
+  /** Label for the skip link: "Skip" on first play, "Close" when opened from How to Play. */
+  skipLabel?: string;
 }
 
-/** First-time walkthrough of the rules, one step at a time. */
-export default function TutorialModal({ onComplete, onSkip }: TutorialModalProps) {
+/** Walkthrough of the rules, one step at a time. */
+export default function TutorialModal({ onComplete, onSkip, skipLabel = 'Skip' }: TutorialModalProps) {
   const [index, setIndex] = useState(0);
-  const step = HOW_TO_PLAY_STEPS[index];
+  const step = TUTORIAL_STEPS[index];
   const isFirst = index === 0;
-  const isLast = index === HOW_TO_PLAY_STEPS.length - 1;
+  const isLast = index === TUTORIAL_STEPS.length - 1;
   const Icon = step.icon;
 
   return (
@@ -24,27 +26,27 @@ export default function TutorialModal({ onComplete, onSkip }: TutorialModalProps
       <div className="card p-8 w-full max-w-lg flex flex-col gap-6 pop-in">
         <div className="flex items-center justify-between">
           <span className="chip bg-grape-soft text-grape-dark !text-xs !px-2 !py-1">
-            Step {index + 1} of {HOW_TO_PLAY_STEPS.length}
+            Step {index + 1} of {TUTORIAL_STEPS.length}
           </span>
           <button
             onClick={onSkip}
             className="text-sm font-bold text-ink-soft hover:text-ink underline underline-offset-2 cursor-pointer"
           >
-            Skip
+            {skipLabel}
           </button>
         </div>
 
         {/* key restarts the pop-in so each step feels like a fresh card */}
-        <div key={index} className="flex flex-col items-center text-center gap-4 pop-in min-h-[210px] justify-center">
+        <div key={index} className="flex flex-col items-center text-center gap-4 pop-in min-h-[170px] justify-center">
           <span className="w-20 h-20 rounded-full bg-grape-soft border-2 border-ink flex items-center justify-center text-grape-dark">
             <Icon size={38} strokeWidth={2.2} />
           </span>
           <h2 className="font-display text-3xl font-bold">{step.title}</h2>
-          <p className="text-lg font-semibold text-ink-soft leading-snug max-w-md">{step.text}</p>
+          <p className="text-xl font-semibold text-ink-soft leading-snug max-w-sm">{step.text}</p>
         </div>
 
         <div className="flex justify-center gap-2" aria-hidden="true">
-          {HOW_TO_PLAY_STEPS.map((_, i) => (
+          {TUTORIAL_STEPS.map((_, i) => (
             <span
               key={i}
               className={`h-2.5 rounded-full transition-all ${i === index ? 'w-7 bg-grape' : 'w-2.5 bg-ink/20'}`}

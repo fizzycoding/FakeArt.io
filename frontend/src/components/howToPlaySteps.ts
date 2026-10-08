@@ -1,4 +1,4 @@
-import { Lock, MessageCircle, Pencil, Star, Trophy, VenetianMask, type LucideIcon } from 'lucide-react';
+import { Lock, MessageCircle, Pencil, Trophy, type LucideIcon } from 'lucide-react';
 
 export interface HowToStep {
   icon: LucideIcon;
@@ -6,37 +6,27 @@ export interface HowToStep {
   text: string;
 }
 
-// The rules in simple words. Used by both the How to Play popup and the
-// first-time tutorial so they never disagree.
-export const HOW_TO_PLAY_STEPS: HowToStep[] = [
+// The rules in a few short steps: one idea each, a two-word title and a single
+// sentence. Shown on first play and again from the How to Play button.
+export const TUTORIAL_STEPS: HowToStep[] = [
   {
     icon: Lock,
-    title: 'Get your word',
-    text: 'Everyone gets a secret word. But one player, the Fake Artist, gets a different word that is a bit similar.',
+    title: 'Secret word',
+    text: 'Everyone gets the same word, except one: the Fake Artist.',
   },
   {
     icon: Pencil,
-    title: 'Take turns drawing',
-    text: 'On your turn, draw 2 strokes on the shared canvas. You have 12 seconds. Show your word, but don’t make it too obvious!',
-  },
-  {
-    icon: VenetianMask,
-    title: 'Fake Artist? Blend in',
-    text: 'You don’t know the real word. Watch the others and draw something that fits in.',
+    title: 'Take turns',
+    text: 'Draw 2 strokes to show your word.',
   },
   {
     icon: MessageCircle,
-    title: 'Chat and vote',
-    text: 'After everyone draws, talk it out and vote for who you think is the Fake Artist. You get 2 minutes, and your vote is final.',
-  },
-  {
-    icon: Star,
-    title: 'Score points',
-    text: 'Vote for the Fake Artist and get +100. The Fake Artist gets +150 if nobody catches them. Missed? You just get 0. No points are ever lost!',
+    title: 'Chat & vote',
+    text: 'Find the Fake Artist and vote. Votes are final!',
   },
   {
     icon: Trophy,
-    title: 'Win the game',
-    text: 'A game has 5 rounds. The player with the most points at the end wins!',
+    title: 'Win',
+    text: 'Catch them to score. Most points after 5 rounds wins!',
   },
 ];

@@ -6,7 +6,6 @@ import GameScreen from './components/GameScreen';
 import Stage from './components/Stage';
 import ResultsModal from './components/ResultsModal';
 import ProfileModal from './components/ProfileModal';
-import HowToPlayModal from './components/HowToPlayModal';
 import TutorialModal from './components/TutorialModal';
 import { startBackgroundMusic } from './utils/music';
 import { initSfx, sfx } from './utils/sfx';
@@ -806,7 +805,9 @@ export default function App() {
         />
       )}
 
-      {showHowTo && <HowToPlayModal onClose={() => setShowHowTo(false)} />}
+      {showHowTo && (
+        <TutorialModal skipLabel="Close" onComplete={() => setShowHowTo(false)} onSkip={() => setShowHowTo(false)} />
+      )}
 
       {showTutorial && <TutorialModal onComplete={finishTutorial} onSkip={finishTutorial} />}
 

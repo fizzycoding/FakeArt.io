@@ -39,7 +39,6 @@ export default function PlayerCard({
               {player.name}
             </span>
             {isSelf && <span className="chip bg-bubble text-white">You</span>}
-            {player.isBot && <span className="chip bg-sun text-ink">Bot</span>}
           </div>
           <div className="text-xs font-bold text-ink-soft">
             {player.score} pts

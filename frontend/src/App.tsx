@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Play, Users, Plus, Link2, LogIn, Settings, Clock, Bot, ArrowLeft
+  Play, Users, Plus, Link2, LogIn, Settings, Clock, Copy, ArrowLeft
 } from 'lucide-react';
 import DrawingCanvas from './components/DrawingCanvas';
 import PlayerCard from './components/PlayerCard';
@@ -43,7 +43,10 @@ export default function App() {
   const [roomCode, setRoomCode] = useState('');
   const [joinInputCode, setJoinInputCode] = useState('');
   const [showJoin, setShowJoin] = useState(false);
+  const [connError, setConnError] = useState('');
   const [isCustomRoom, setIsCustomRoom] = useState(false);
+  const [hostId, setHostId] = useState('');
+  const [queueWaiting, setQueueWaiting] = useState(1);
   
   const [myPlayerId, setMyPlayerId] = useState('');
   const [players, setPlayers] = useState<Player[]>([]);
@@ -54,7 +57,7 @@ export default function App() {
   const [totalDrawRounds, setTotalDrawRounds] = useState(4);
   const [phaseTimeLeft, setPhaseTimeLeft] = useState(15);
   const [roundNumber, setRoundNumber] = useState(1);
-  const [maxMatches, setMaxMatches] = useState(9999);
+  const [maxMatches, setMaxMatches] = useState(1);
 
   const [remoteStrokes, setRemoteStrokes] = useState<StrokeData[]>([]);
   const [clearSignal, setClearSignal] = useState(0);
@@ -83,6 +86,7 @@ export default function App() {
       return;
     }
 
+    setConnError('');
     const ws = new WebSocket(WS_URL);
 
     ws.onopen = () => {
@@ -94,6 +98,10 @@ export default function App() {
         const msg = JSON.parse(event.data);
         handleServerMessage(msg);
       } catch (e) {}
+    };
+
+    ws.onerror = () => {
+      setConnError("Can't reach the game server. Is the backend running?");
     };
 
     ws.onclose = () => {
@@ -122,19 +130,32 @@ export default function App() {
       case 'JOIN_SUCCESS':
         setRoomCode(payload.code);
         setPlayers(payload.players || []);
+        setHostId(payload.hostId || '');
         setIsCustomRoom(true);
         setScreen('LOBBY');
         break;
 
       case 'LOBBY_UPDATE':
         setPlayers(payload.players || []);
+        setHostId(payload.hostId || '');
+        break;
+
+      case 'QUEUE_UPDATE':
+        setQueueWaiting(payload.waiting || 1);
+        break;
+
+      case 'GAME_ABORTED':
+        setConnError(payload.message || 'The game ended.');
+        triggerGameplayStop();
+        setCurrentPhase('LOBBY');
+        wsRef.current?.close();
         break;
 
       case 'START_ROUND':
         triggerGameplayStart();
         setSecretWord(payload.word || '');
         setRoundNumber(payload.roundNumber || 1);
-        setMaxMatches(payload.maxMatches || 9999);
+        setMaxMatches(payload.maxMatches || 1);
         setPlayers(payload.players || []);
         setRemoteStrokes([]);
         setChatMessages([]);
@@ -207,6 +228,7 @@ export default function App() {
         avatar: profile.avatar
       });
       setIsCustomRoom(false);
+      setQueueWaiting(1);
       setScreen('LOBBY');
     });
   };
@@ -232,12 +254,16 @@ export default function App() {
     });
   };
 
-  const handleAddBots = () => {
-    sendWSMessage('ADD_BOTS');
+  const handleStartGame = () => {
+    sendWSMessage('START_GAME');
   };
 
-  const handleCancelMatchmaking = () => {
-    sendWSMessage('LEAVE_QUEUE');
+  const handleCopyCode = () => {
+    navigator.clipboard?.writeText(roomCode).catch(() => {});
+  };
+
+  const handleLeaveLobby = () => {
+    sendWSMessage('LEAVE_ROOM');
     setScreen('MENU');
   };
 
@@ -356,9 +382,13 @@ export default function App() {
               )}
             </div>
 
+            {connError && (
+              <p className="text-cherry text-sm font-bold text-center">{connError}</p>
+            )}
+
             <p className="text-ink-soft text-sm font-semibold text-center max-w-xs leading-relaxed">
-              3 artists know the word. 1 Fake Artist doesn't.
-              Blend in, or spot the impostor!
+              One stroke each. One of you has a different word.
+              Spot the Fake Artist!
             </p>
           </div>
         )}
@@ -378,14 +408,18 @@ export default function App() {
                 )}
               </h3>
               <p className="text-ink-soft text-sm font-semibold mt-1">
-                Waiting for players ({players.length}/4)
+                {isCustomRoom
+                  ? `Players (${players.length}/4)`
+                  : `${queueWaiting}/4 players found`}
               </p>
             </div>
 
             {/* Slot indicators */}
             <div className="flex gap-3 justify-center w-full">
               {[0, 1, 2, 3].map((idx) => {
-                const p = players[idx];
+                const p = isCustomRoom
+                  ? players[idx]
+                  : idx < queueWaiting ? { avatar: idx === 0 ? profile.avatar : '🎨', name: idx === 0 ? 'You' : 'Artist', id: String(idx) } : undefined;
                 return (
                   <div
                     key={idx}
@@ -405,13 +439,29 @@ export default function App() {
             </div>
 
             <div className="flex flex-col gap-3 w-full">
-              <button onClick={handleAddBots} className="btn btn-secondary w-full py-3 text-base">
-                <Bot size={20} className="text-grape-dark" />
-                Fill Slots with AI Bots
-              </button>
+              {isCustomRoom && (
+                <>
+                  <button onClick={handleCopyCode} className="btn btn-secondary w-full py-3 text-base">
+                    <Copy size={18} />
+                    Copy Room Code
+                  </button>
+                  {myPlayerId === hostId ? (
+                    <button
+                      onClick={handleStartGame}
+                      disabled={players.length < 3}
+                      className="btn btn-primary w-full py-3 text-lg"
+                    >
+                      <Play size={20} fill="currentColor" />
+                      {players.length < 3 ? 'Need 3+ players' : 'Start Game'}
+                    </button>
+                  ) : (
+                    <p className="text-ink-soft text-sm font-semibold">Waiting for the host to start…</p>
+                  )}
+                </>
+              )}
 
-              <button onClick={handleCancelMatchmaking} className="btn btn-secondary w-full py-3 text-base !text-cherry">
-                Cancel
+              <button onClick={handleLeaveLobby} className="btn btn-secondary w-full py-3 text-base !text-cherry">
+                {isCustomRoom ? 'Leave Room' : 'Cancel'}
               </button>
             </div>
           </div>
@@ -423,7 +473,7 @@ export default function App() {
             <div className="flex flex-col gap-3 order-2 md:order-1">
               <div className="font-display text-sm font-semibold text-ink-soft flex justify-between tracking-wider uppercase px-1">
                 <span>Players</span>
-                <span>Round {roundNumber}{maxMatches < 9999 ? `/${maxMatches}` : ''}</span>
+                {maxMatches > 1 && <span>Match {roundNumber}/{maxMatches}</span>}
               </div>
               {players.map((p) => (
                 <PlayerCard

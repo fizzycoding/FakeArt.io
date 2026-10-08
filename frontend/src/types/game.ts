@@ -3,7 +3,6 @@ export interface Player {
   name: string;
   avatar: string;
   score: number;
-  isBot?: boolean;
 }
 
 export interface StrokeData {

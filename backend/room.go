@@ -1,20 +1,25 @@
 package main
 
 import (
-	"encoding/json"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 const (
-	drawRounds  = 4  // every player draws once per round
-	turnSeconds = 10 // time limit for each player's single stroke
+	drawRounds    = 4  // every player draws once per round
+	turnSeconds   = 10 // time limit for each player's single stroke
+	votingSeconds = 20
+	minPlayers    = 3
+	maxPlayers    = 4
 )
 
 type Room struct {
 	Code           string
 	IsCustom       bool
+	HostID         string
 	Players        []*Player
 	Phase          PhaseType
 	SecretWord     string // given to the artists
@@ -25,93 +30,164 @@ type Room struct {
 	CurrentTurn    int
 	TurnGen        int // bumped whenever a turn ends so stale timers/messages are ignored
 	ActiveDrawerID string
-	StrokeStarted  bool // the active drawer has begun their one stroke
-	StrokeEnded    bool // ...and has finished it
+	StrokeStarted  bool
+	StrokeEnded    bool
 	TurnOrder      []string
 	Votes          map[string]string // VoterID -> TargetPlayerID
 	Strokes        []StrokeData
 	Mutex          sync.RWMutex
 	Timer          *time.Timer
-	StopChan       chan struct{}
 }
 
 func NewRoom(code string, isCustom bool) *Room {
-	maxM := 9999
+	maxMatches := 1
 	if isCustom {
-		maxM = 4
+		maxMatches = 4
 	}
 	return &Room{
 		Code:       code,
 		IsCustom:   isCustom,
-		Players:    make([]*Player, 0, 4),
+		Players:    make([]*Player, 0, maxPlayers),
 		Phase:      PhaseLobby,
 		Votes:      make(map[string]string),
-		Strokes:    make([]StrokeData, 0),
-		MaxMatches: maxM,
-		StopChan:   make(chan struct{}),
+		MaxMatches: maxMatches,
 	}
 }
 
-func (r *Room) AddPlayer(p *Player) bool {
+func (r *Room) AddPlayer(p *Player) error {
 	r.Mutex.Lock()
 	defer r.Mutex.Unlock()
-	if len(r.Players) >= 4 {
-		return false
+	if r.Phase != PhaseLobby {
+		return errRoomStarted
 	}
-	p.RoomCode = r.Code
+	if len(r.Players) >= maxPlayers {
+		return errRoomFull
+	}
 	r.Players = append(r.Players, p)
-	return true
+	if r.HostID == "" {
+		r.HostID = p.ID
+	}
+	p.SetRoom(r.Code)
+	return nil
+}
+
+func (r *Room) IsFull() bool {
+	r.Mutex.RLock()
+	defer r.Mutex.RUnlock()
+	return len(r.Players) >= maxPlayers
 }
 
 func (r *Room) RemovePlayer(playerID string) {
 	r.Mutex.Lock()
-	defer r.Mutex.Unlock()
+	idx := -1
 	for i, p := range r.Players {
 		if p.ID == playerID {
-			r.Players = append(r.Players[:i], r.Players[i+1:]...)
+			idx = i
 			break
 		}
 	}
+	if idx < 0 {
+		r.Mutex.Unlock()
+		return
+	}
+	r.Players = append(r.Players[:idx], r.Players[idx+1:]...)
+	delete(r.Votes, playerID)
+
+	remaining := len(r.Players)
+	phase := r.Phase
+	impostorLeft := playerID == r.ImpostorID
+	if r.HostID == playerID && remaining > 0 {
+		r.HostID = r.Players[0].ID
+	}
+	allVoted := phase == PhaseVoting && remaining > 0 && len(r.Votes) >= remaining
+	r.Mutex.Unlock()
+
+	switch {
+	case remaining == 0:
+		r.Close()
+	case phase == PhaseLobby:
+		r.broadcastLobby()
+	case phase == PhaseClosed:
+	case remaining < minPlayers:
+		r.abort("Not enough players left to continue.")
+	case impostorLeft && (phase == PhaseDrawing || phase == PhaseVoting):
+		r.abort("The Fake Artist left. Round cancelled.")
+	case allVoted:
+		r.calculateResults()
+	}
+}
+
+// Close stops all timers and unregisters the room; later timer callbacks no-op.
+func (r *Room) Close() {
+	r.Mutex.Lock()
+	if r.Phase == PhaseClosed {
+		r.Mutex.Unlock()
+		return
+	}
+	r.Phase = PhaseClosed
+	r.TurnGen++
+	if r.Timer != nil {
+		r.Timer.Stop()
+	}
+	r.Mutex.Unlock()
+	globalHub.removeRoom(r.Code)
+}
+
+func (r *Room) abort(reason string) {
+	r.Broadcast("GAME_ABORTED", map[string]interface{}{"message": reason})
+	r.Close()
+}
+
+func (r *Room) summaries() []PlayerSummary {
+	r.Mutex.RLock()
+	defer r.Mutex.RUnlock()
+	return r.summariesLocked()
+}
+
+func (r *Room) summariesLocked() []PlayerSummary {
+	out := make([]PlayerSummary, len(r.Players))
+	for i, p := range r.Players {
+		out[i] = PlayerSummary{ID: p.ID, Name: p.Name, Avatar: p.Avatar, Score: p.Score}
+	}
+	return out
+}
+
+func (r *Room) broadcastLobby() {
+	r.Mutex.RLock()
+	hostID := r.HostID
+	players := r.summariesLocked()
+	r.Mutex.RUnlock()
+
+	r.Broadcast("LOBBY_UPDATE", map[string]interface{}{
+		"roomCode": r.Code,
+		"players":  players,
+		"hostId":   hostID,
+		"required": maxPlayers,
+	})
 }
 
 func (r *Room) Broadcast(msgType string, payload interface{}) {
-	data, err := json.Marshal(WSMessage{Type: msgType, Payload: mustMarshal(payload)})
-	if err != nil {
-		return
-	}
+	data := marshalWS(msgType, payload)
 	r.Mutex.RLock()
 	defer r.Mutex.RUnlock()
 	for _, p := range r.Players {
-		if p.Conn != nil && !p.IsBot {
-			select {
-			case p.Send <- data:
-			default:
-			}
-		}
+		p.Enqueue(data)
 	}
 }
 
-func (r *Room) BroadcastToPlayer(playerID string, msgType string, payload interface{}) {
-	data, err := json.Marshal(WSMessage{Type: msgType, Payload: mustMarshal(payload)})
-	if err != nil {
-		return
-	}
+// HostStart lets a private room's host begin once enough players have joined.
+func (r *Room) HostStart(playerID string) {
 	r.Mutex.RLock()
-	defer r.Mutex.RUnlock()
-	for _, p := range r.Players {
-		if p.ID == playerID && p.Conn != nil && !p.IsBot {
-			select {
-			case p.Send <- data:
-			default:
-			}
-			break
-		}
+	ok := r.HostID == playerID && r.Phase == PhaseLobby && len(r.Players) >= minPlayers
+	r.Mutex.RUnlock()
+	if ok {
+		r.StartGame()
 	}
 }
 
 func (r *Room) StartGame() {
 	r.Mutex.Lock()
-	if len(r.Players) < 4 {
+	if (r.Phase != PhaseLobby && r.Phase != PhaseResults) || len(r.Players) < minPlayers {
 		r.Mutex.Unlock()
 		return
 	}
@@ -122,65 +198,43 @@ func (r *Room) StartGame() {
 	r.ImpostorWord = pair.Impostor
 	r.Strokes = make([]StrokeData, 0)
 	r.Votes = make(map[string]string)
-
-	impostorIdx := rand.Intn(len(r.Players))
-	r.ImpostorID = r.Players[impostorIdx].ID
+	r.ImpostorID = r.Players[rand.Intn(len(r.Players))].ID
 
 	r.TurnOrder = make([]string, len(r.Players))
-	perm := rand.Perm(len(r.Players))
-	for i, v := range perm {
+	for i, v := range rand.Perm(len(r.Players)) {
 		r.TurnOrder[i] = r.Players[v].ID
 	}
 	r.CurrentTurn = 0
 	r.ActiveDrawerID = ""
-	r.Mutex.Unlock()
 
-	r.notifyRoundStart()
-	r.startDrawingTurn()
-}
-
-func (r *Room) notifyRoundStart() {
-	r.Mutex.RLock()
-	defer r.Mutex.RUnlock()
-
-	type PlayerSummary struct {
-		ID     string `json:"id"`
-		Name   string `json:"name"`
-		Avatar string `json:"avatar"`
-		Score  int    `json:"score"`
-		IsBot  bool   `json:"isBot"`
+	summaries := r.summariesLocked()
+	type delivery struct {
+		p    *Player
+		word string
 	}
-
-	summaries := make([]PlayerSummary, len(r.Players))
+	deliveries := make([]delivery, len(r.Players))
 	for i, p := range r.Players {
-		summaries[i] = PlayerSummary{
-			ID:     p.ID,
-			Name:   p.Name,
-			Avatar: p.Avatar,
-			Score:  p.Score,
-			IsBot:  p.IsBot,
-		}
-	}
-
-	for _, p := range r.Players {
-		// Everyone, Impostor included, just receives "their" word. Nobody is told
-		// whether it's the real one.
 		word := r.SecretWord
 		if p.ID == r.ImpostorID {
 			word = r.ImpostorWord
 		}
-		payload := map[string]interface{}{
-			"word":        word,
-			"roundNumber": r.MatchCount,
-			"maxMatches":  r.MaxMatches,
-			"players":     summaries,
-		}
-		r.BroadcastToPlayer(p.ID, "START_ROUND", payload)
+		deliveries[i] = delivery{p, word}
 	}
+	matchCount, maxMatches := r.MatchCount, r.MaxMatches
+	r.Mutex.Unlock()
+
+	// Everyone, Impostor included, just receives "their" word.
+	for _, d := range deliveries {
+		d.p.SendMsg("START_ROUND", map[string]interface{}{
+			"word":        d.word,
+			"roundNumber": matchCount,
+			"maxMatches":  maxMatches,
+			"players":     summaries,
+		})
+	}
+	r.startDrawingTurn()
 }
 
-// startDrawingTurn begins the next player's turn, or moves on to voting once
-// every player has drawn in every round.
 func (r *Room) startDrawingTurn() {
 	r.Mutex.Lock()
 	if r.Phase != PhaseDrawing {
@@ -206,10 +260,10 @@ func (r *Room) startDrawingTurn() {
 	r.StrokeStarted = false
 	r.StrokeEnded = false
 
-	present, isBot := false, false
+	present := false
 	for _, p := range r.Players {
 		if p.ID == drawerID {
-			present, isBot = true, p.IsBot
+			present = true
 			break
 		}
 	}
@@ -217,9 +271,7 @@ func (r *Room) startDrawingTurn() {
 	if r.Timer != nil {
 		r.Timer.Stop()
 	}
-	r.Timer = time.AfterFunc(turnSeconds*time.Second, func() {
-		r.endTurn(gen)
-	})
+	r.Timer = time.AfterFunc(turnSeconds*time.Second, func() { r.endTurn(gen) })
 	r.Mutex.Unlock()
 
 	r.Broadcast("TURN_CHANGE", map[string]interface{}{
@@ -230,38 +282,44 @@ func (r *Room) startDrawingTurn() {
 		"totalRounds":  drawRounds,
 		"durationSecs": turnSeconds,
 	})
-
 	r.Broadcast("PHASE_CHANGE", map[string]interface{}{
 		"phase":           "DRAWING",
 		"durationSeconds": turnSeconds,
 		"activeDrawerId":  drawerID,
 	})
 
-	switch {
-	case !present:
-		// The drawer left mid-game: skip their turn instead of waiting it out.
+	if !present {
 		go r.endTurn(gen)
-	case isBot:
-		go r.simulateBotDrawing(drawerID)
 	}
 }
 
-// endTurn finishes the turn identified by gen (timer ran out, or the drawer
-// lifted their pen). Calls for a turn that already ended are ignored.
+// endTurn finishes the turn identified by gen; repeat calls for it are ignored.
 func (r *Room) endTurn(gen int) {
 	r.Mutex.Lock()
 	if gen != r.TurnGen || r.Phase != PhaseDrawing {
 		r.Mutex.Unlock()
 		return
 	}
-	r.TurnGen++ // invalidate any other caller still holding this gen
+	r.TurnGen++
 	r.Mutex.Unlock()
 
 	r.startDrawingTurn()
 }
 
+func sanitizeStroke(s StrokeData) StrokeData {
+	s.X = clamp(s.X, 0, 1)
+	s.Y = clamp(s.Y, 0, 1)
+	s.Width = clamp(s.Width, 1, 40)
+	if len(s.Color) > 9 || !strings.HasPrefix(s.Color, "#") {
+		s.Color = "#000000"
+	}
+	return s
+}
+
 // HandleStroke accepts a point of the active drawer's single stroke.
 func (r *Room) HandleStroke(playerID string, s StrokeData) {
+	s = sanitizeStroke(s)
+
 	r.Mutex.Lock()
 	if r.Phase != PhaseDrawing || r.ActiveDrawerID != playerID || r.StrokeEnded {
 		r.Mutex.Unlock()
@@ -283,8 +341,7 @@ func (r *Room) HandleStroke(playerID string, s StrokeData) {
 	r.Broadcast("SYNC_STROKE", s)
 }
 
-// EndStroke is called when the active drawer lifts their pen: their one stroke
-// is done, so the turn passes to the next player immediately.
+// EndStroke passes the turn on as soon as the active drawer lifts their pen.
 func (r *Room) EndStroke(playerID string) {
 	r.Mutex.Lock()
 	if r.Phase != PhaseDrawing || r.ActiveDrawerID != playerID || !r.StrokeStarted || r.StrokeEnded {
@@ -298,89 +355,40 @@ func (r *Room) EndStroke(playerID string) {
 	r.endTurn(gen)
 }
 
-// simulateBotDrawing draws one wobbly stroke, then hands the turn over.
-func (r *Room) simulateBotDrawing(botID string) {
-	time.Sleep(time.Duration(1000+rand.Intn(2500)) * time.Millisecond)
-
-	colors := []string{"#FF5722", "#4CAF50", "#2196F3", "#9C27B0", "#FFEB3B"}
-	stroke := StrokeData{
-		X:           rand.Float64()*0.6 + 0.2,
-		Y:           rand.Float64()*0.6 + 0.2,
-		Color:       colors[rand.Intn(len(colors))],
-		Width:       6,
-		IsNewStroke: true,
+func clamp(v, lo, hi float64) float64 {
+	if v < lo {
+		return lo
 	}
-	r.HandleStroke(botID, stroke)
-
-	stroke.IsNewStroke = false
-	for j := 0; j < 12; j++ {
-		time.Sleep(150 * time.Millisecond)
-		stroke.X = clamp01(stroke.X + (rand.Float64()-0.5)*0.12)
-		stroke.Y = clamp01(stroke.Y + (rand.Float64()-0.5)*0.12)
-		r.HandleStroke(botID, stroke)
-	}
-
-	r.EndStroke(botID)
-}
-
-func clamp01(v float64) float64 {
-	if v < 0 {
-		return 0
-	}
-	if v > 1 {
-		return 1
+	if v > hi {
+		return hi
 	}
 	return v
 }
 
 func (r *Room) startVotingPhase() {
 	r.Mutex.Lock()
+	if r.Phase != PhaseDrawing {
+		r.Mutex.Unlock()
+		return
+	}
 	r.Phase = PhaseVoting
-	r.TurnGen++ // any in-flight turn timer is now stale
+	r.TurnGen++
 	r.ActiveDrawerID = ""
 	if r.Timer != nil {
 		r.Timer.Stop()
 	}
-	r.Timer = time.AfterFunc(20*time.Second, func() {
-		r.calculateResults()
-	})
+	r.Timer = time.AfterFunc(votingSeconds*time.Second, r.calculateResults)
 	r.Mutex.Unlock()
 
 	r.Broadcast("PHASE_CHANGE", map[string]interface{}{
 		"phase":           "VOTING",
-		"durationSeconds": 20,
+		"durationSeconds": votingSeconds,
 	})
-
-	go r.simulateBotVotes()
-}
-
-func (r *Room) simulateBotVotes() {
-	time.Sleep(3 * time.Second)
-	r.Mutex.RLock()
-	defer r.Mutex.RUnlock()
-	if r.Phase != PhaseVoting {
-		return
-	}
-
-	for _, p := range r.Players {
-		if p.IsBot {
-			var targets []string
-			for _, other := range r.Players {
-				if other.ID != p.ID {
-					targets = append(targets, other.ID)
-				}
-			}
-			if len(targets) > 0 {
-				chosenTarget := targets[rand.Intn(len(targets))]
-				go r.CastVote(p.ID, chosenTarget)
-			}
-		}
-	}
 }
 
 func (r *Room) CastVote(voterID, targetID string) {
 	r.Mutex.Lock()
-	if r.Phase != PhaseVoting {
+	if r.Phase != PhaseVoting || voterID == targetID || !r.hasPlayerLocked(voterID) || !r.hasPlayerLocked(targetID) {
 		r.Mutex.Unlock()
 		return
 	}
@@ -388,44 +396,47 @@ func (r *Room) CastVote(voterID, targetID string) {
 	allVoted := len(r.Votes) >= len(r.Players)
 	r.Mutex.Unlock()
 
-	r.Broadcast("VOTE_REGISTERED", map[string]interface{}{
-		"voterId": voterID,
-	})
+	r.Broadcast("VOTE_REGISTERED", map[string]interface{}{"voterId": voterID})
 
 	if allVoted {
-		if r.Timer != nil {
-			r.Timer.Stop()
-		}
 		r.calculateResults()
 	}
 }
 
+func (r *Room) hasPlayerLocked(id string) bool {
+	for _, p := range r.Players {
+		if p.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *Room) calculateResults() {
 	r.Mutex.Lock()
-	if r.Phase == PhaseResults {
+	if r.Phase != PhaseVoting {
 		r.Mutex.Unlock()
 		return
 	}
 	r.Phase = PhaseResults
+	if r.Timer != nil {
+		r.Timer.Stop()
+	}
 
 	voteCounts := make(map[string]int)
 	for _, target := range r.Votes {
 		voteCounts[target]++
 	}
-
-	topVotedID := ""
-	maxVotes := -1
+	topVotedID, maxVotes := "", -1
 	for id, count := range voteCounts {
 		if count > maxVotes {
-			maxVotes = count
-			topVotedID = id
+			maxVotes, topVotedID = count, id
 		}
 	}
+	impostorCaught := topVotedID == r.ImpostorID && maxVotes > 0
 
-	impostorCaught := (topVotedID == r.ImpostorID && maxVotes > 0)
 	scoreDeltas := make(map[string]int)
 	totalScores := make(map[string]int)
-
 	for _, p := range r.Players {
 		delta := 0
 		if p.ID == r.ImpostorID {
@@ -434,24 +445,26 @@ func (r *Room) calculateResults() {
 			} else {
 				delta = 75
 			}
+		} else if r.Votes[p.ID] == r.ImpostorID {
+			delta = 25
 		} else {
-			votedTarget := r.Votes[p.ID]
-			if votedTarget == r.ImpostorID {
-				delta = 25
-			} else {
-				delta = -25
-			}
+			delta = -25
 		}
 		scoreDeltas[p.ID] = delta
 		p.Score += delta
 		totalScores[p.ID] = p.Score
 	}
 
-	isGameOver := r.IsCustom && r.MatchCount >= r.MaxMatches
+	isGameOver := r.MatchCount >= r.MaxMatches
 	impostorID, word, impostorWord := r.ImpostorID, r.SecretWord, r.ImpostorWord
 	votes := make(map[string]string, len(r.Votes))
 	for k, v := range r.Votes {
 		votes[k] = v
+	}
+	if isGameOver {
+		r.Timer = time.AfterFunc(60*time.Second, r.Close)
+	} else {
+		r.Timer = time.AfterFunc(10*time.Second, r.StartGame)
 	}
 	r.Mutex.Unlock()
 
@@ -464,20 +477,21 @@ func (r *Room) calculateResults() {
 		"totalScores":  totalScores,
 		"isGameOver":   isGameOver,
 	})
-
-	if !isGameOver {
-		r.Timer = time.AfterFunc(10*time.Second, func() {
-			r.StartGame()
-		})
-	}
 }
 
 func (r *Room) HandleChat(sender *Player, text string) {
 	r.Mutex.RLock()
-	currentPhase := r.Phase
+	phase := r.Phase
 	r.Mutex.RUnlock()
+	if phase != PhaseVoting {
+		return
+	}
 
-	if currentPhase != PhaseVoting {
+	text = strings.TrimSpace(text)
+	if utf8.RuneCountInString(text) > 200 {
+		text = string([]rune(text)[:200])
+	}
+	if text == "" {
 		return
 	}
 
@@ -487,9 +501,4 @@ func (r *Room) HandleChat(sender *Player, text string) {
 		"message":    text,
 		"timestamp":  time.Now().Format("15:04"),
 	})
-}
-
-func mustMarshal(v interface{}) json.RawMessage {
-	b, _ := json.Marshal(v)
-	return b
 }

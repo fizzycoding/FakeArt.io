@@ -5,25 +5,35 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
+const (
+	writeWait  = 10 * time.Second
+	pongWait   = 60 * time.Second
+	pingPeriod = 25 * time.Second
+	maxMsgSize = 8 * 1024
+)
+
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+func httpHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", handleWebSocket)
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "OK rooms=%d", globalHub.RoomCount())
+	})
+	return mux
 }
 
 func main() {
-	http.HandleFunc("/ws", handleWebSocket)
-	http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
-
 	fmt.Println("Server running on http://localhost:8080")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	if err := http.ListenAndServe(":8080", httpHandler()); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
 }
@@ -34,61 +44,61 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	player := &Player{
-		ID:    generateUUID(),
-		Conn:  conn,
-		Send:  make(chan []byte, 256),
-		Score: 0,
-	}
-
+	player := newPlayer(conn)
 	go writePump(player)
 
-	playerInfo, _ := json.Marshal(WSMessage{
-		Type: "PLAYER_INFO",
-		Payload: mustMarshal(map[string]interface{}{
-			"id": player.ID,
-		}),
-	})
-	player.Send <- playerInfo
-
+	player.SendMsg("PLAYER_INFO", map[string]interface{}{"id": player.ID})
 	readPump(player)
 }
 
 func readPump(p *Player) {
 	defer func() {
+		p.Close()
 		p.Conn.Close()
-		if p.RoomCode != "" {
-			globalHub.Mutex.Lock()
-			room, ok := globalHub.Rooms[p.RoomCode]
-			globalHub.Mutex.Unlock()
-			if ok {
-				room.RemovePlayer(p.ID)
-			}
-		} else {
-			globalHub.LeavePublicQueue(p.ID)
-		}
+		p.leaveAll()
 	}()
 
+	p.Conn.SetReadLimit(maxMsgSize)
+	p.Conn.SetReadDeadline(time.Now().Add(pongWait))
+	p.Conn.SetPongHandler(func(string) error {
+		return p.Conn.SetReadDeadline(time.Now().Add(pongWait))
+	})
+
 	for {
-		_, messageBytes, err := p.Conn.ReadMessage()
+		_, data, err := p.Conn.ReadMessage()
 		if err != nil {
-			break
+			return
 		}
+		p.Conn.SetReadDeadline(time.Now().Add(pongWait))
 
 		var msg WSMessage
-		if err := json.Unmarshal(messageBytes, &msg); err != nil {
-			continue
+		if json.Unmarshal(data, &msg) == nil {
+			handleClientMessage(p, msg)
 		}
-
-		handleClientMessage(p, msg)
 	}
 }
 
 func writePump(p *Player) {
-	defer p.Conn.Close()
-	for message := range p.Send {
-		if err := p.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
-			break
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		p.Conn.Close()
+	}()
+
+	for {
+		select {
+		case message := <-p.Send:
+			p.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := p.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
+				return
+			}
+		case <-ticker.C:
+			p.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := p.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		case <-p.Done:
+			return
 		}
 	}
 }
@@ -96,139 +106,83 @@ func writePump(p *Player) {
 func handleClientMessage(p *Player, msg WSMessage) {
 	switch msg.Type {
 	case "JOIN_QUEUE":
-		var payload JoinQueuePayload
+		var payload ProfilePayload
 		json.Unmarshal(msg.Payload, &payload)
-		if payload.Name != "" {
-			p.Name = payload.Name
-		} else {
-			p.Name = "Artist_" + p.ID[:4]
-		}
-		if payload.Avatar != "" {
-			p.Avatar = payload.Avatar
-		} else {
-			p.Avatar = "🎨"
-		}
-		globalHub.JoinPublicQueue(p)
-
-	case "LEAVE_QUEUE":
-		globalHub.LeavePublicQueue(p.ID)
+		p.leaveAll()
+		p.SetProfile(payload.Name, payload.Avatar)
+		globalMatchmaker.Join(p)
 
 	case "CREATE_ROOM":
-		var payload CreateRoomPayload
+		var payload ProfilePayload
 		json.Unmarshal(msg.Payload, &payload)
-		if payload.Name != "" {
-			p.Name = payload.Name
-		} else {
-			p.Name = "Artist_" + p.ID[:4]
-		}
-		if payload.Avatar != "" {
-			p.Avatar = payload.Avatar
-		} else {
-			p.Avatar = "🎨"
-		}
-		room := globalHub.CreateCustomRoom(p)
-		p.Send <- mustMarshalWSMessage("ROOM_CREATED", map[string]interface{}{
+		p.leaveAll()
+		p.SetProfile(payload.Name, payload.Avatar)
+		room := globalHub.CreatePrivateRoom(p)
+		p.SendMsg("ROOM_CREATED", map[string]interface{}{
 			"code":    room.Code,
-			"players": room.Players,
+			"players": room.summaries(),
+			"hostId":  p.ID,
 		})
 
 	case "JOIN_ROOM":
-		var payload JoinRoomPayload
+		var payload ProfilePayload
 		json.Unmarshal(msg.Payload, &payload)
-		if payload.Name != "" {
-			p.Name = payload.Name
-		} else {
-			p.Name = "Artist_" + p.ID[:4]
-		}
-		if payload.Avatar != "" {
-			p.Avatar = payload.Avatar
-		} else {
-			p.Avatar = "🎨"
-		}
-		room, err := globalHub.JoinCustomRoom(payload.Code, p)
+		p.leaveAll()
+		p.SetProfile(payload.Name, payload.Avatar)
+		code := strings.ToUpper(strings.TrimSpace(payload.Code))
+		room, err := globalHub.JoinPrivateRoom(code, p)
 		if err != nil {
-			p.Send <- mustMarshalWSMessage("ERROR", map[string]interface{}{
-				"message": err.Error(),
-			})
-		} else {
-			p.Send <- mustMarshalWSMessage("JOIN_SUCCESS", map[string]interface{}{
-				"code":    room.Code,
-				"players": room.Players,
-			})
+			p.SendMsg("ERROR", map[string]interface{}{"message": err.Error()})
+			return
+		}
+		room.Mutex.RLock()
+		hostID := room.HostID
+		room.Mutex.RUnlock()
+		p.SendMsg("JOIN_SUCCESS", map[string]interface{}{
+			"code":    room.Code,
+			"players": room.summaries(),
+			"hostId":  hostID,
+		})
+		room.broadcastLobby()
+		if room.IsFull() {
+			go room.StartGame()
 		}
 
-	case "ADD_BOTS":
-		if p.RoomCode != "" {
-			globalHub.AddBotsToRoom(p.RoomCode)
+	case "LEAVE_ROOM", "LEAVE_QUEUE":
+		p.leaveAll()
+
+	case "START_GAME":
+		if room := globalHub.Get(p.Room()); room != nil {
+			room.HostStart(p.ID)
 		}
 
 	case "DRAW_STROKE":
-		if p.RoomCode == "" {
-			return
-		}
-		globalHub.Mutex.Lock()
-		room, ok := globalHub.Rooms[p.RoomCode]
-		globalHub.Mutex.Unlock()
-		if !ok {
-			return
-		}
-
-		var stroke StrokeData
-		if err := json.Unmarshal(msg.Payload, &stroke); err == nil {
-			room.HandleStroke(p.ID, stroke)
+		if room := globalHub.Get(p.Room()); room != nil {
+			var stroke StrokeData
+			if json.Unmarshal(msg.Payload, &stroke) == nil {
+				room.HandleStroke(p.ID, stroke)
+			}
 		}
 
 	case "END_STROKE":
-		if p.RoomCode == "" {
-			return
-		}
-		globalHub.Mutex.Lock()
-		room, ok := globalHub.Rooms[p.RoomCode]
-		globalHub.Mutex.Unlock()
-		if ok {
+		if room := globalHub.Get(p.Room()); room != nil {
 			room.EndStroke(p.ID)
 		}
 
 	case "SEND_CHAT":
-		if p.RoomCode == "" {
-			return
-		}
-		globalHub.Mutex.Lock()
-		room, ok := globalHub.Rooms[p.RoomCode]
-		globalHub.Mutex.Unlock()
-		if !ok {
-			return
-		}
-
-		var payload SendChatPayload
-		json.Unmarshal(msg.Payload, &payload)
-		if payload.Message != "" {
+		if room := globalHub.Get(p.Room()); room != nil {
+			var payload SendChatPayload
+			json.Unmarshal(msg.Payload, &payload)
 			room.HandleChat(p, payload.Message)
 		}
 
 	case "CAST_VOTE":
-		if p.RoomCode == "" {
-			return
-		}
-		globalHub.Mutex.Lock()
-		room, ok := globalHub.Rooms[p.RoomCode]
-		globalHub.Mutex.Unlock()
-		if !ok {
-			return
-		}
-
-		var payload CastVotePayload
-		json.Unmarshal(msg.Payload, &payload)
-		if payload.TargetPlayerID != "" {
-			room.CastVote(p.ID, payload.TargetPlayerID)
+		if room := globalHub.Get(p.Room()); room != nil {
+			var payload CastVotePayload
+			json.Unmarshal(msg.Payload, &payload)
+			if payload.TargetPlayerID != "" {
+				room.CastVote(p.ID, payload.TargetPlayerID)
+			}
 		}
 	}
-}
-
-func mustMarshalWSMessage(msgType string, payload interface{}) []byte {
-	b, _ := json.Marshal(WSMessage{
-		Type:    msgType,
-		Payload: mustMarshal(payload),
-	})
-	return b
 }

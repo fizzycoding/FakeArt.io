@@ -49,23 +49,18 @@ export default function MatchmakingScreen({
 
   return (
     <div className="match-bg fixed inset-0 z-40 flex flex-col items-center justify-center gap-10 px-4 text-ink overflow-hidden">
-      <span className="match-blob match-blob-a" />
-      <span className="match-blob match-blob-b" />
 
-      <div className="relative flex flex-col items-center gap-4 text-center">
-        <span className="logo text-3xl">Fake<em>Art</em>.io</span>
-        <div className="card px-8 py-4">
-          <h2 className="font-display text-3xl sm:text-4xl font-bold">
-            {matchFound ? (
-              <>Match <span className="text-grape">found!</span></>
-            ) : (
-              'Finding match…'
-            )}
-          </h2>
-          <p className="mt-1 text-sm font-semibold text-ink-soft">
-            {matchFound ? 'Get ready to draw' : `${found}/${SLOT_COUNT} players found`}
-          </p>
-        </div>
+      <div className="relative text-center">
+        <h2 className="font-display text-4xl sm:text-5xl font-bold">
+          {matchFound ? (
+            <>Match <span className="text-grape">found!</span></>
+          ) : (
+            'Finding match…'
+          )}
+        </h2>
+        <p className="mt-2 text-sm sm:text-base font-semibold text-ink-soft">
+          {matchFound ? 'Get ready to draw' : `${found}/${SLOT_COUNT} players found`}
+        </p>
       </div>
 
       <div className="relative grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-8 sm:gap-8">

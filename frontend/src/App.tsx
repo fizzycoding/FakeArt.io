@@ -49,6 +49,7 @@ export default function App() {
   const [hostId, setHostId] = useState('');
   const [queuePlayers, setQueuePlayers] = useState<Player[]>([]);
   const [matchFound, setMatchFound] = useState(false);
+  const [leftIds, setLeftIds] = useState<string[]>([]);
   const [matchCountdown, setMatchCountdown] = useState(5);
   
   const [myPlayerId, setMyPlayerId] = useState('');
@@ -159,6 +160,10 @@ export default function App() {
         setMatchFound(true);
         break;
 
+      case 'PLAYER_LEFT':
+        setLeftIds((prev) => (prev.includes(payload.playerId) ? prev : [...prev, payload.playerId]));
+        break;
+
       case 'GAME_ABORTED':
         setMatchFound(false);
         setConnError(payload.message || 'The game ended.');
@@ -169,6 +174,7 @@ export default function App() {
 
       case 'START_ROUND':
         setMatchFound(false);
+        setLeftIds([]);
         triggerGameplayStart();
         setSecretWord(payload.word || '');
         setRoundNumber(payload.roundNumber || 1);
@@ -318,6 +324,7 @@ export default function App() {
   return (
     <div className="w-full h-full min-h-screen flex flex-col">
       {/* App Header */}
+      {screen !== 'GAME' && (
       <header className="flex items-center justify-between px-4 sm:px-6 pt-4">
         {screen === 'MENU' ? (
           <div />
@@ -354,6 +361,7 @@ export default function App() {
           </button>
         </div>
       </header>
+      )}
 
       {/* Screen Router */}
       <main className="flex-1 flex items-center justify-center p-4">
@@ -504,6 +512,7 @@ export default function App() {
                   player={p}
                   isCurrentDrawer={p.id === activeDrawerId && currentPhase === 'DRAWING'}
                   isSelf={p.id === myPlayerId}
+                  hasLeft={leftIds.includes(p.id)}
                   currentPhase={currentPhase}
                   onVote={handleCastVote}
                   hasVoted={hasVoted}

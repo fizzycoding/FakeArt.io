@@ -171,27 +171,38 @@
 
 .match-bg {
   background-color: #efe8ff;
-  background-image:
-    radial-gradient(circle at 15% 20%, rgba(255, 79, 184, 0.16), transparent 40%),
-    radial-gradient(circle at 85% 80%, rgba(164, 71, 255, 0.22), transparent 45%),
-    radial-gradient(rgba(138, 43, 226, 0.22) 2px, transparent 2px);
-  background-size: auto, auto, 28px 28px;
+  isolation: isolate;
 }
 
-.match-blob {
+/* Slowly turning conic gradient, softened so the sticker UI stays readable */
+.match-bg::before {
+  content: '';
   position: absolute;
-  border-radius: 9999px;
-  border: 2px solid rgba(138, 43, 226, 0.25);
-  pointer-events: none;
-  animation: blobDrift 9s ease-in-out infinite alternate;
+  top: 50%;
+  left: 50%;
+  width: 220vmax;
+  height: 220vmax;
+  margin: -110vmax 0 0 -110vmax;
+  background: conic-gradient(
+    from 0deg,
+    #f3e8ff, #e0ccff, #ffd9f1, #d9e0ff, #ead9ff, #ffe0f3, #d6c4ff, #f3e8ff
+  );
+  animation: conicSpin 24s linear infinite;
+  z-index: -2;
 }
 
-.match-blob-a { width: 260px; height: 260px; background: rgba(164, 71, 255, 0.14); top: -90px; right: -70px; }
-.match-blob-b { width: 220px; height: 220px; background: rgba(255, 79, 184, 0.14); bottom: -80px; left: -60px; animation-delay: -4s; }
+/* Soft glow in the middle */
+.match-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.75), transparent 60%);
+  z-index: -1;
+}
 
-@keyframes blobDrift {
-  from { transform: translate(0, 0) scale(1); }
-  to { transform: translate(-20px, 30px) scale(1.1); }
+@keyframes conicSpin {
+  to { transform: rotate(360deg); }
 }
 
 /* Hard, quick cut for flashing avatars and countdown ticks */
@@ -216,5 +227,5 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .match-blob, .match-cut, .match-lock { animation: none; }
+  .match-bg::before, .match-cut, .match-lock { animation: none; }
 }

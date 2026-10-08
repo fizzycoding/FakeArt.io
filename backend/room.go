@@ -95,7 +95,8 @@ func (r *Room) RemovePlayer(playerID string) {
 
 	remaining := len(r.Players)
 	phase := r.Phase
-	impostorLeft := playerID == r.ImpostorID
+	drawerLeft := phase == PhaseDrawing && playerID == r.ActiveDrawerID
+	turnGen := r.TurnGen
 	if r.HostID == playerID && remaining > 0 {
 		r.HostID = r.Players[0].ID
 	}
@@ -110,12 +111,15 @@ func (r *Room) RemovePlayer(playerID string) {
 	case phase == PhaseLobby:
 		r.broadcastLobby()
 	case phase == PhaseClosed:
-	case remaining < minPlayers:
-		r.abort("Not enough players left to continue.")
-	case impostorLeft && (phase == PhaseDrawing || phase == PhaseVoting):
-		r.abort("The Fake Artist left. Round cancelled.")
-	case allVoted:
-		r.calculateResults()
+	default:
+		// The game carries on without them; clients just grey out their card.
+		r.Broadcast("PLAYER_LEFT", map[string]interface{}{"playerId": playerID})
+		switch {
+		case allVoted:
+			r.calculateResults()
+		case drawerLeft:
+			go r.endTurn(turnGen)
+		}
 	}
 }
 
@@ -195,8 +199,16 @@ func (r *Room) StartAfter(d time.Duration) {
 
 func (r *Room) StartGame() {
 	r.Mutex.Lock()
-	if (r.Phase != PhaseLobby && r.Phase != PhaseResults) || len(r.Players) < minPlayers {
+	if r.Phase != PhaseLobby && r.Phase != PhaseResults {
 		r.Mutex.Unlock()
+		return
+	}
+	if len(r.Players) < minPlayers {
+		between := r.Phase == PhaseResults
+		r.Mutex.Unlock()
+		if between {
+			r.abort("Not enough players left for another match.")
+		}
 		return
 	}
 	r.MatchCount++

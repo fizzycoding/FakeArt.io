@@ -146,3 +146,28 @@ func TestMatchmakerMakesRoomsOfFour(t *testing.T) {
 		globalMatchmaker.Leave(p.ID)
 	}
 }
+
+func TestGameContinuesWhenPlayersLeave(t *testing.T) {
+	r := NewRoom("LEAVE", true)
+	defer r.Close()
+	for _, id := range []string{"a", "b", "c", "d"} {
+		r.AddPlayer(testPlayer(id))
+	}
+	r.HostStart("a")
+	if r.Phase != PhaseDrawing {
+		t.Fatalf("game did not start, phase %s", r.Phase)
+	}
+
+	// Even the Impostor and the active drawer walking out must not end the game.
+	r.RemovePlayer(r.ImpostorID)
+	r.RemovePlayer(r.ActiveDrawerID)
+	r.Mutex.RLock()
+	phase, left := r.Phase, len(r.Players)
+	r.Mutex.RUnlock()
+	if phase != PhaseDrawing {
+		t.Fatalf("game ended after players left, phase %s", phase)
+	}
+	if left == 0 || left > 3 {
+		t.Fatalf("unexpected player count %d", left)
+	}
+}

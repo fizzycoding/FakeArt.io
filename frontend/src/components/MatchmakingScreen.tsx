@@ -24,7 +24,7 @@ function SlotReel() {
   const [seed] = useState(() => ({ offset: Math.random(), speed: Math.random(), phase: Math.random() }));
 
   const reel = useMemo(() => {
-    const count = Math.max(6, list.length * 2);
+    const count = Math.max(4, list.length);
     const offset = Math.floor(seed.offset * list.length);
     const strip = Array.from({ length: count }, (_, i) => list[(offset + i) % list.length]);
     return {

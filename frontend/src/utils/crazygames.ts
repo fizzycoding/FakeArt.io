@@ -45,6 +45,10 @@ interface CrazyGamesSDK {
     updateRoom: (room: { roomId?: string; isJoinable?: boolean; inviteParams?: Record<string, string> }) => void;
     leftRoom: () => void;
   };
+  data: {
+    getItem: (key: string) => string | null;
+    setItem: (key: string, value: string) => void;
+  };
   user: {
     isUserAccountAvailable: boolean;
     getUser: () => Promise<{ username?: string } | null>;
@@ -252,3 +256,55 @@ export const requestRewardedAd = (): Promise<RewardedAdResult> => {
     }
   });
 };
+
+// ---------- Saved values (CrazyGames data module) ----------
+//
+// The CrazyGames data module follows the player to other devices. It can be
+// switched off for a game, so every value falls back to localStorage, then to
+// memory, and the game works in all three cases.
+
+const inMemory = new Map<string, string>();
+
+const readSaved = (key: string): string | null => {
+  let raw: string | null | undefined;
+  try {
+    raw = sdk?.data.getItem(key);
+  } catch {
+    raw = undefined;
+  }
+  if (raw === undefined || raw === null) {
+    try {
+      raw = localStorage.getItem(key);
+    } catch {
+      raw = undefined;
+    }
+  }
+  if (raw === undefined || raw === null) return inMemory.get(key) ?? null;
+  return raw;
+};
+
+const writeSaved = (key: string, value: string): void => {
+  inMemory.set(key, value);
+  try {
+    sdk?.data.setItem(key, value);
+  } catch {
+    // data module unavailable for this game
+  }
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // storage blocked: the in-memory value still works for this session
+  }
+};
+
+// Room credit: 0 = the next Create Room needs a rewarded ad.
+//              1 = an ad was watched but no room made yet, so the next room is free.
+// Only ever 0 or 1; it never stacks up.
+const CREDIT_KEY = 'fakeart_room_credit';
+export const getRoomCredit = (): 0 | 1 => (readSaved(CREDIT_KEY) === '1' ? 1 : 0);
+export const setRoomCredit = (value: 0 | 1): void => writeSaved(CREDIT_KEY, String(value));
+
+// First-time tutorial: has the player been through it (or skipped it) already?
+const TUTORIAL_KEY = 'fakeart_tutorial_done';
+export const isTutorialDone = (): boolean => readSaved(TUTORIAL_KEY) === '1';
+export const markTutorialDone = (): void => writeSaved(TUTORIAL_KEY, '1');

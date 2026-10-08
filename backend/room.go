@@ -611,7 +611,8 @@ func (r *Room) TryJoinMidGame(p *Player) bool {
 	if n := len(r.TurnOrder); n > 0 && r.CurrentTurn > 0 {
 		drawRound = (r.CurrentTurn-1)/n + 1
 	}
-	strokes := append([]StrokeData(nil), r.Strokes...)
+	strokes := make([]StrokeData, len(r.Strokes)) // never nil, so clients get [] not null
+	copy(strokes, r.Strokes)
 	voted := make([]string, 0, len(r.Votes))
 	for voter := range r.Votes {
 		voted = append(voted, voter)

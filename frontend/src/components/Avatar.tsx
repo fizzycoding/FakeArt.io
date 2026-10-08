@@ -13,6 +13,7 @@ export default function Avatar({ id, className = 'w-full h-full' }: AvatarProps)
       src={avatarSrc(id)}
       alt=""
       draggable={false}
+      decoding="async"
       className={`rounded-full object-cover select-none ${className}`}
     />
   );

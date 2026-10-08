@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Play, Users, Plus, Link2, LogIn, Copy, ArrowLeft, CircleHelp, Video, Loader2
+  Play, Users, Plus, Link2, LogIn, Copy, CircleHelp, Video, Loader2, X
 } from 'lucide-react';
 import GameScreen from './components/GameScreen';
 import Stage from './components/Stage';
 import ResultsModal from './components/ResultsModal';
 import ProfileModal from './components/ProfileModal';
 import HowToPlayModal from './components/HowToPlayModal';
+import TutorialModal from './components/TutorialModal';
 import { startBackgroundMusic } from './utils/music';
 import { initSfx, sfx } from './utils/sfx';
 import Avatar from './components/Avatar';
@@ -18,7 +19,8 @@ import {
 import {
   initCrazyGamesSDK, isSdkUsable, loadingStart, loadingStop, triggerGameplayStart, triggerGameplayStop,
   triggerHappyTime, requestRewardedAd, hasAdblock, isChatDisabled, getCrazyGamesUsername, shareRoom,
-  leaveSharedRoom, getInviteLink, getInviteRoomCode, onInviteJoin, AdFailure,
+  leaveSharedRoom, getInviteLink, getInviteRoomCode, onInviteJoin, AdFailure, getRoomCredit, setRoomCredit,
+  isTutorialDone, markTutorialDone,
 } from './utils/crazygames';
 
 const getWebSocketUrl = (): string => {
@@ -56,9 +58,14 @@ export default function App() {
 
   const [showProfile, setShowProfile] = useState(false);
   const [showHowTo, setShowHowTo] = useState(false);
+  // The first time someone presses Play they get a short walkthrough of the rules.
+  const [tutorialDone, setTutorialDone] = useState<boolean>(() => isTutorialDone());
+  const [showTutorial, setShowTutorial] = useState(false);
   const [adGated, setAdGated] = useState(false); // Create Room costs a rewarded ad (CrazyGames SDK active)
   const [adBusy, setAdBusy] = useState(false); // an ad is loading or playing: block the UI
   const [adblocked, setAdblocked] = useState(false);
+  // 0 = the next room needs an ad; 1 = an ad was watched and no room made yet, so the next one is free.
+  const [roomCredit, setRoomCreditState] = useState<0 | 1>(() => getRoomCredit());
   const [adNotice, setAdNotice] = useState('');
   const [chatOff, setChatOff] = useState(false);
   const [roomCode, setRoomCode] = useState('');
@@ -92,6 +99,8 @@ export default function App() {
   // The socket handlers are created once, so they read the player id from a ref.
   const myIdRef = useRef('');
   const roomCodeRef = useRef('');
+  // Callbacks waiting for the connection that is currently opening.
+  const pendingOpenRef = useRef<Array<() => void>>([]);
   const profileRef = useRef<PlayerProfile | null>(null);
   const [roundResults, setRoundResults] = useState<RoundResults | null>(null);
 
@@ -116,6 +125,8 @@ export default function App() {
         setProfile((prev) => (/^Artist_\d+$/.test(prev.name) ? { ...prev, name: cgName.slice(0, 15) } : prev));
       }
       if (alive) {
+        setRoomCreditState(getRoomCredit());
+        setTutorialDone(isTutorialDone());
         setAdGated(isSdkUsable());
         setChatOff(isChatDisabled());
       }
@@ -174,20 +185,33 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the clock should trigger a tick
   }, [phaseTimeLeft]);
 
+  // There is only ever one connection. A second request while one is still
+  // opening (a fast double-click on Play) waits for it instead of opening another.
   const connectWebSocket = (onOpenCallback?: () => void) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+    const existing = wsRef.current;
+    if (existing && existing.readyState === WebSocket.OPEN) {
       if (onOpenCallback) onOpenCallback();
+      return;
+    }
+    if (existing && existing.readyState === WebSocket.CONNECTING) {
+      if (onOpenCallback) pendingOpenRef.current.push(onOpenCallback);
       return;
     }
 
     setConnError('');
     const ws = new WebSocket(WS_URL);
+    pendingOpenRef.current = onOpenCallback ? [onOpenCallback] : [];
 
     ws.onopen = () => {
-      if (onOpenCallback) onOpenCallback();
+      if (wsRef.current !== ws) return;
+      const waiting = pendingOpenRef.current;
+      pendingOpenRef.current = [];
+      waiting.forEach((fn) => fn());
     };
 
     ws.onmessage = (event) => {
+      // Ignore anything from a connection we've already left or replaced.
+      if (wsRef.current !== ws) return;
       try {
         const msg = JSON.parse(event.data);
         handleServerMessage(msg);
@@ -195,12 +219,13 @@ export default function App() {
     };
 
     ws.onerror = () => {
-      setConnError("Can't reach the game server. Is the backend running?");
+      if (wsRef.current === ws) setConnError("Can't reach the game server. Is the backend running?");
     };
 
     ws.onclose = () => {
       if (wsRef.current === ws) {
         wsRef.current = null;
+        pendingOpenRef.current = [];
         setScreen('MENU');
       }
     };
@@ -226,6 +251,7 @@ export default function App() {
 
       case 'ROOM_CREATED':
       case 'JOIN_SUCCESS':
+        if (msgType === 'ROOM_CREATED') updateRoomCredit(0);
         roomCodeRef.current = payload.code;
         shareRoom(payload.code, (payload.players || []).length < 4);
         setRoomCode(payload.code);
@@ -381,7 +407,23 @@ export default function App() {
     }
   };
 
+  // Play: new players see the tutorial first, then go straight into matchmaking.
   const handleQuickMatch = () => {
+    if (!tutorialDone) {
+      setShowTutorial(true);
+      return;
+    }
+    startQuickMatch();
+  };
+
+  const finishTutorial = () => {
+    markTutorialDone();
+    setTutorialDone(true);
+    setShowTutorial(false);
+    startQuickMatch();
+  };
+
+  const startQuickMatch = () => {
     connectWebSocket(() => {
       sendWSMessage('JOIN_QUEUE', {
         name: profile.name,
@@ -392,6 +434,11 @@ export default function App() {
       setMatchFound(false);
       setScreen('LOBBY');
     });
+  };
+
+  const updateRoomCredit = (value: 0 | 1) => {
+    setRoomCreditState(value);
+    setRoomCredit(value);
   };
 
   const adFailureMessage = (reason: AdFailure): string => {
@@ -414,7 +461,7 @@ export default function App() {
     setAdNotice('');
     setConnError('');
 
-    if (adGated) {
+    if (adGated && roomCredit === 0) {
       setAdBusy(true);
       const result = await requestRewardedAd();
       setAdBusy(false);
@@ -423,7 +470,10 @@ export default function App() {
         if (result.reason === 'adblock') setAdblocked(true);
         return;
       }
-      if (result.watched) sfx.matchFound(); // a clear "unlocked" cue
+      if (result.watched) {
+        updateRoomCredit(1); // watched: the room is free from here, even if it fails to open
+        sfx.matchFound(); // a clear "unlocked" cue
+      }
     }
 
     connectWebSocket(() => {
@@ -470,12 +520,11 @@ export default function App() {
     navigator.clipboard?.writeText(link ?? roomCode).catch(() => {});
   };
 
+  // Cancel (matchmaking) and Leave Room: tell the server, then drop the connection
+  // so the player can't linger in a queue or room behind the scenes.
   const handleLeaveLobby = () => {
     sendWSMessage('LEAVE_ROOM');
-    roomCodeRef.current = '';
-    leaveSharedRoom();
-    setMatchFound(false);
-    setScreen('MENU');
+    handleReturnToMenu();
   };
 
   const handleSendStroke = (stroke: StrokeData) => {
@@ -503,6 +552,7 @@ export default function App() {
     leaveSharedRoom();
     const ws = wsRef.current;
     wsRef.current = null;
+    pendingOpenRef.current = [];
     ws?.close();
     setMatchFound(false);
     setCurrentPhase('LOBBY');
@@ -520,26 +570,19 @@ export default function App() {
   };
 
   const inMatchmaking = screen === 'LOBBY' && !isCustomRoom;
-  const stageBg = screen === 'GAME' ? 'game-bg' : inMatchmaking ? 'match-bg' : '';
+  const inRoomLobby = screen === 'LOBBY' && isCustomRoom;
+  // Only the menu shows the doodle background; the room popup sits on a plain gradient.
+  const stageBg = screen === 'GAME' || inRoomLobby ? 'game-bg' : inMatchmaking ? 'match-bg' : '';
+  // Creating a room costs one ad unless one was already watched and not used yet.
+  const needsAd = adGated && roomCredit === 0;
 
   return (
     <Stage bgClass={stageBg}>
     <div className="w-full h-full flex flex-col">
       {/* App Header */}
-      {screen !== 'GAME' && !inMatchmaking && (
+      {screen === 'MENU' && (
       <header className="flex items-center justify-between px-4 sm:px-6 pt-4">
-        {screen === 'MENU' ? (
-          <div />
-        ) : (
-          <button
-            onClick={handleReturnToMenu}
-            className="btn btn-secondary btn-sm"
-            aria-label="Back to menu"
-          >
-            <ArrowLeft size={16} />
-            <img src={`${import.meta.env.BASE_URL}logo.webp`} alt="FakeArt.io" draggable={false} className="h-7 w-auto" />
-          </button>
-        )}
+        <div />
 
         <button
           onClick={() => setShowProfile(true)}
@@ -577,13 +620,13 @@ export default function App() {
 
               <button
                 onClick={handleCreateRoom}
-                disabled={adBusy || (adGated && adblocked)}
-                aria-label={adGated ? 'Create Room (watch a short ad)' : 'Create Room'}
+                disabled={adBusy || (needsAd && adblocked)}
+                aria-label={needsAd ? 'Create Room (watch a short ad)' : 'Create Room'}
                 className="btn btn-secondary w-full py-3.5 text-lg"
               >
                 <Plus size={22} strokeWidth={3} />
                 Create Room
-                {adGated && (
+                {needsAd && (
                   <span
                     title="Watch a short ad to create a room"
                     className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-grape text-white border-2 border-ink flex items-center justify-center"
@@ -621,7 +664,7 @@ export default function App() {
               </button>
             </div>
 
-            {(connError || adNotice || (adGated && adblocked)) && (
+            {(connError || adNotice || (needsAd && adblocked)) && (
               <p className="text-cherry text-sm font-bold text-center max-w-sm">
                 {connError ||
                   adNotice ||
@@ -643,7 +686,15 @@ export default function App() {
         )}
 
         {screen === 'LOBBY' && isCustomRoom && (
-          <div className="card p-8 max-w-md w-full flex flex-col gap-6 items-center text-center pop-in">
+          <div className="relative card p-8 max-w-md w-full flex flex-col gap-6 items-center text-center pop-in">
+            <button
+              onClick={handleLeaveLobby}
+              aria-label="Leave room"
+              className="btn btn-secondary btn-sm !p-2 !absolute top-4 right-4"
+            >
+              <X size={18} />
+            </button>
+
             <div className="w-16 h-16 rounded-full bg-grape-soft border-2 border-ink flex items-center justify-center text-grape-dark">
               <Users size={30} />
             </div>
@@ -756,6 +807,8 @@ export default function App() {
       )}
 
       {showHowTo && <HowToPlayModal onClose={() => setShowHowTo(false)} />}
+
+      {showTutorial && <TutorialModal onComplete={finishTutorial} onSkip={finishTutorial} />}
 
       {/* Profile Modal */}
       {showProfile && (

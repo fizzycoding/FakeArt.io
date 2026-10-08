@@ -225,9 +225,11 @@ func (r *Room) StartGame() {
 	r.Votes = make(map[string]string)
 	r.ImpostorID = r.Players[rand.Intn(len(r.Players))].ID
 
+	// Players draw in seat order (1, 2, 3, 4, then 1 again), matching the
+	// order every client lists them in.
 	r.TurnOrder = make([]string, len(r.Players))
-	for i, v := range rand.Perm(len(r.Players)) {
-		r.TurnOrder[i] = r.Players[v].ID
+	for i, p := range r.Players {
+		r.TurnOrder[i] = p.ID
 	}
 	r.CurrentTurn = 0
 	r.ActiveDrawerID = ""

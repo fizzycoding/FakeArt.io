@@ -40,9 +40,10 @@ const STEPS = [
 export default function HowToPlayModal({ onClose }: HowToPlayModalProps) {
   return (
     <div
-      className="fixed inset-0 bg-ink/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 flex items-center justify-center z-50 p-4"
       onClick={onClose}
     >
+      <div className="absolute -inset-[100%] -z-10 bg-ink/50 backdrop-blur-sm" />
       <div
         className="card p-6 w-full max-w-2xl flex flex-col gap-4 pop-in"
         onClick={(e) => e.stopPropagation()}

@@ -7,6 +7,7 @@ import Stage from './components/Stage';
 import ResultsModal from './components/ResultsModal';
 import ProfileModal from './components/ProfileModal';
 import HowToPlayModal from './components/HowToPlayModal';
+import { startBackgroundMusic } from './utils/music';
 import MatchmakingScreen from './components/MatchmakingScreen';
 import { 
   Player, StrokeData, ChatMessage, RoundResults, PlayerProfile, GamePhase 
@@ -72,6 +73,10 @@ export default function App() {
   const [roundResults, setRoundResults] = useState<RoundResults | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    startBackgroundMusic();
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('fakeart_profile', JSON.stringify(profile));

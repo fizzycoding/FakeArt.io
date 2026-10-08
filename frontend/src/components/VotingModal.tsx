@@ -35,15 +35,13 @@ export default function VotingModal({
   };
 
   return (
-    <div className="absolute inset-0 z-20 flex items-center justify-center bg-ink/40 backdrop-blur-sm">
+    <div className="absolute inset-0 z-20 flex items-center justify-center">
+      <div className="absolute -inset-[100%] -z-10 bg-ink/40 backdrop-blur-sm" />
       <div className="card w-[1080px] h-[600px] p-5 flex flex-col gap-4 pop-in">
         <div className="flex items-center justify-between">
-          <div>
-            <h2 className="font-display text-3xl font-bold">
-              Who is the <span className="text-cherry">Fake Artist</span>?
-            </h2>
-            <p className="text-sm font-semibold text-ink-soft">Talk it out, then vote. You can even vote for yourself.</p>
-          </div>
+          <h2 className="font-display text-3xl font-bold">
+            Who is the <span className="text-cherry">Fake Artist</span>?
+          </h2>
           <div className="card !rounded-2xl px-4 py-2 flex items-center gap-2">
             <Clock size={22} className="text-grape-dark" />
             <span className="font-display font-bold text-3xl tabular-nums">{fmt(timeLeft)}</span>

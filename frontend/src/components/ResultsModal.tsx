@@ -33,7 +33,8 @@ export default function ResultsModal({ results, players, roundNumber, maxRounds,
 
   if (results.isGameOver) {
     return (
-      <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
+        <div className="absolute -inset-[100%] -z-10 bg-ink/50 backdrop-blur-sm" />
         <div className="card p-6 max-w-md w-full flex flex-col items-center text-center gap-4 pop-in">
           <div className="w-16 h-16 rounded-full bg-sun/30 border-2 border-ink flex items-center justify-center text-sun">
             <Trophy size={34} />
@@ -73,7 +74,8 @@ export default function ResultsModal({ results, players, roundNumber, maxRounds,
   }
 
   return (
-    <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
+      <div className="absolute -inset-[100%] -z-10 bg-ink/50 backdrop-blur-sm" />
       <div className="card p-6 max-w-md w-full flex flex-col items-center text-center gap-4 pop-in">
         <div className="w-16 h-16 rounded-full bg-bubble-soft border-2 border-ink flex items-center justify-center text-cherry">
           <ShieldAlert size={34} />
@@ -99,16 +101,23 @@ export default function ResultsModal({ results, players, roundNumber, maxRounds,
 
           {players.map((p) => {
             const delta = results.scoreDeltas[p.id] || 0;
+            const isImpostor = p.id === results.impostorId;
             const targetPlayer = players.find((tp) => tp.id === results.votes[p.id]);
 
             return (
               <div key={p.id} className="card-soft p-2.5 flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 min-w-0">
                   <span className="text-xl">{p.avatar}</span>
-                  <span className="font-bold">{p.name}</span>
+                  <div className="min-w-0 text-left leading-tight">
+                    <div className="font-bold truncate">{p.name}</div>
+                    <div className={`text-xs font-bold ${isImpostor ? 'text-cherry' : 'text-grape-dark'}`}>
+                      Word: {isImpostor ? results.impostorWord : results.word}
+                      {isImpostor && ' (Fake Artist)'}
+                    </div>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 shrink-0">
                   <span className="text-xs font-semibold text-ink-soft">
                     {targetPlayer ? `Voted: ${targetPlayer.name}` : 'No vote'}
                   </span>

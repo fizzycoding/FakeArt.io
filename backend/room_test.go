@@ -267,3 +267,20 @@ func TestPrivateAndFinishedGamesRefuseMidGameJoin(t *testing.T) {
 		t.Fatal("a finished game must not accept new players")
 	}
 }
+
+func TestPlayersDrawInSeatOrder(t *testing.T) {
+	r := newTestRoom()
+	r.StartGame()
+	defer r.Close()
+
+	want := []string{"a", "b", "c", "d"}
+	for lap := 0; lap < drawRounds; lap++ {
+		for _, id := range want {
+			if got := activeDrawer(r); got != id {
+				t.Fatalf("lap %d: expected %s to draw, got %s", lap+1, id, got)
+			}
+			drawStroke(r, id)
+			drawStroke(r, id)
+		}
+	}
+}

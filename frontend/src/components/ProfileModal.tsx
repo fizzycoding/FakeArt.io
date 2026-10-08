@@ -36,7 +36,8 @@ export default function ProfileModal({ profile, onSaveProfile, onClose }: Profil
   ];
 
   return (
-    <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
+      <div className="absolute -inset-[100%] -z-10 bg-ink/50 backdrop-blur-sm" />
       <div className="card p-6 max-w-md w-full flex flex-col gap-5 pop-in">
         <div className="flex justify-between items-center">
           <h2 className="font-display text-2xl font-bold">Your Profile</h2>

@@ -37,16 +37,29 @@ func (m *Matchmaker) Leave(id string) {
 }
 
 func (m *Matchmaker) run() {
+	// Seats free up when players leave running games, so waiting players are
+	// re-offered open matches on a timer too.
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
 	for {
+		changed := true
 		select {
 		case p := <-m.join:
 			m.add(p)
 		case id := <-m.leave:
 			m.remove(id)
+		case <-ticker.C:
+			before := len(m.queue)
+			m.prune()
+			m.fill()
+			changed = len(m.queue) != before
 		}
 		m.prune()
+		m.fill()
 		m.match()
-		m.notify()
+		if changed {
+			m.notify()
+		}
 	}
 }
 
@@ -57,6 +70,20 @@ func (m *Matchmaker) add(p *Player) {
 		}
 	}
 	m.queue = append(m.queue, p)
+}
+
+// fill moves queued players into running games that have an open seat.
+func (m *Matchmaker) fill() {
+	if len(m.queue) == 0 {
+		return
+	}
+	waiting := m.queue[:0]
+	for _, p := range m.queue {
+		if !globalHub.JoinOpenMatch(p) {
+			waiting = append(waiting, p)
+		}
+	}
+	m.queue = waiting
 }
 
 func (m *Matchmaker) remove(id string) {

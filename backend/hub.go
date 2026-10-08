@@ -97,3 +97,22 @@ func (h *Hub) JoinPrivateRoom(code string, p *Player) (*Room, error) {
 	}
 	return room, nil
 }
+
+// JoinOpenMatch seats p in a running public game that has a free seat.
+func (h *Hub) JoinOpenMatch(p *Player) bool {
+	h.mu.RLock()
+	rooms := make([]*Room, 0, len(h.rooms))
+	for _, r := range h.rooms {
+		if !r.IsCustom {
+			rooms = append(rooms, r)
+		}
+	}
+	h.mu.RUnlock()
+
+	for _, r := range rooms {
+		if r.TryJoinMidGame(p) {
+			return true
+		}
+	}
+	return false
+}

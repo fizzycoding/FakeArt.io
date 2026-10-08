@@ -3,11 +3,12 @@ import {
   Play, Users, Plus, Link2, LogIn, Settings, Copy, ArrowLeft
 } from 'lucide-react';
 import GameScreen from './components/GameScreen';
+import Stage from './components/Stage';
 import ResultsModal from './components/ResultsModal';
 import ProfileModal from './components/ProfileModal';
 import MatchmakingScreen from './components/MatchmakingScreen';
 import { 
-  Player, StrokeData, RoundResults, PlayerProfile, GamePhase 
+  Player, StrokeData, ChatMessage, RoundResults, PlayerProfile, GamePhase 
 } from './types/game';
 import { 
   triggerGameplayStart, triggerGameplayStop, triggerHappyTime 
@@ -63,6 +64,7 @@ export default function App() {
 
   const [remoteStrokes, setRemoteStrokes] = useState<StrokeData[]>([]);
   const [clearSignal, setClearSignal] = useState(0);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [votedTargetId, setVotedTargetId] = useState('');
   const [hasVoted, setHasVoted] = useState(false);
   const [roundResults, setRoundResults] = useState<RoundResults | null>(null);
@@ -181,10 +183,42 @@ export default function App() {
         setMaxMatches(payload.maxMatches || 1);
         setPlayers(payload.players || []);
         setRemoteStrokes([]);
+        setChatMessages([]);
         setHasVoted(false);
         setVotedTargetId('');
         setRoundResults(null);
         setScreen('GAME');
+        break;
+
+      case 'SYNC_GAME':
+        // Joined a game already in progress: adopt its current state.
+        setMatchFound(false);
+        setLeftIds([]);
+        triggerGameplayStart();
+        setSecretWord(payload.word || '');
+        setRoundNumber(payload.roundNumber || 1);
+        setMaxMatches(payload.maxMatches || 5);
+        setPlayers(payload.players || []);
+        setCurrentPhase(payload.phase || 'DRAWING');
+        setPhaseTimeLeft(payload.durationSecs || 0);
+        setActiveDrawerId(payload.activeDrawerId || '');
+        setDrawRound(payload.drawRound || 1);
+        setTotalDrawRounds(payload.totalRounds || 4);
+        setRemoteStrokes(payload.strokes || []);
+        setChatMessages([]);
+        setHasVoted(false);
+        setVotedTargetId('');
+        setRoundResults(null);
+        setScreen('GAME');
+        break;
+
+      case 'PLAYER_JOINED':
+        setPlayers(payload.players || []);
+        setLeftIds([]);
+        break;
+
+      case 'CHAT_MESSAGE':
+        setChatMessages((prev) => [...prev, payload]);
         break;
 
       case 'TURN_CHANGE':
@@ -220,12 +254,13 @@ export default function App() {
       case 'ROUND_RESULTS':
         setRoundResults(payload);
         setCurrentPhase('RESULTS');
-        if (payload.totalScores && payload.totalScores[myPlayerId] !== undefined) {
-          const myDelta = payload.scoreDeltas[myPlayerId] || 0;
+        if (payload.isGameOver && payload.totalScores && payload.totalScores[myPlayerId] !== undefined) {
+          const best = Math.max(...(Object.values(payload.totalScores) as number[]));
+          const won = payload.totalScores[myPlayerId] === best;
           setProfile((prev) => ({
             ...prev,
             matchesPlayed: prev.matchesPlayed + 1,
-            matchesWon: myDelta > 0 ? prev.matchesWon + 1 : prev.matchesWon
+            matchesWon: won ? prev.matchesWon + 1 : prev.matchesWon
           }));
         }
         break;
@@ -295,6 +330,10 @@ export default function App() {
     sendWSMessage('END_STROKE');
   };
 
+  const handleSendMessage = (text: string) => {
+    sendWSMessage('SEND_CHAT', { message: text });
+  };
+
   const handleCastVote = (targetPlayerId: string) => {
     if (hasVoted) return;
     setVotedTargetId(targetPlayerId);
@@ -313,6 +352,7 @@ export default function App() {
     setQueuePlayers([]);
     setLeftIds([]);
     setRemoteStrokes([]);
+    setChatMessages([]);
     setHasVoted(false);
     setVotedTargetId('');
     setConnError('');
@@ -321,10 +361,14 @@ export default function App() {
 
   const level = 1 + Math.floor(profile.matchesPlayed / 3);
 
+  const inMatchmaking = screen === 'LOBBY' && !isCustomRoom;
+  const stageBg = screen === 'GAME' ? 'game-bg' : inMatchmaking ? 'match-bg' : '';
+
   return (
-    <div className="w-full h-full min-h-screen flex flex-col">
+    <Stage bgClass={stageBg}>
+    <div className="w-full h-full flex flex-col">
       {/* App Header */}
-      {screen !== 'GAME' && (
+      {screen !== 'GAME' && !inMatchmaking && (
       <header className="flex items-center justify-between px-4 sm:px-6 pt-4">
         {screen === 'MENU' ? (
           <div />
@@ -514,6 +558,8 @@ export default function App() {
             hasVoted={hasVoted}
             votedTargetId={votedTargetId}
             onVote={handleCastVote}
+            chatMessages={chatMessages}
+            onSendMessage={handleSendMessage}
             remoteStrokes={remoteStrokes}
             clearSignal={clearSignal}
             onSendStroke={handleSendStroke}
@@ -527,7 +573,9 @@ export default function App() {
         <ResultsModal
           results={roundResults}
           players={players}
-          onNextMatch={handleReturnToMenu}
+          roundNumber={roundNumber}
+          maxRounds={maxMatches}
+          onReturnHome={handleReturnToMenu}
         />
       )}
 
@@ -540,5 +588,6 @@ export default function App() {
         />
       )}
     </div>
+    </Stage>
   );
 }

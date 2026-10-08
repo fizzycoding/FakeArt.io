@@ -1,31 +1,14 @@
-import React from 'react';
-import { Pencil, UserCheck } from 'lucide-react';
-import { Player, GamePhase } from '../types/game';
+import { Pencil } from 'lucide-react';
+import { Player } from '../types/game';
 
 interface PlayerCardProps {
   player: Player;
   isCurrentDrawer: boolean;
   isSelf: boolean;
   hasLeft?: boolean;
-  currentPhase: GamePhase;
-  onVote: (targetPlayerId: string) => void;
-  hasVoted: boolean;
-  votedTargetId: string;
 }
 
-export default function PlayerCard({
-  player,
-  isCurrentDrawer,
-  isSelf,
-  hasLeft = false,
-  currentPhase,
-  onVote,
-  hasVoted,
-  votedTargetId
-}: PlayerCardProps) {
-  const isVotingPhase = currentPhase === 'VOTING';
-  const isSelectedForVote = votedTargetId === player.id;
-
+export default function PlayerCard({ player, isCurrentDrawer, isSelf, hasLeft = false }: PlayerCardProps) {
   return (
     <div className={`card !rounded-2xl p-3 flex items-center justify-between gap-3 transition-all ${
       isCurrentDrawer ? 'pulse-active !bg-grape-soft' : ''
@@ -37,14 +20,10 @@ export default function PlayerCard({
 
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
-            <span className="font-bold text-sm truncate">
-              {player.name}
-            </span>
+            <span className="font-bold text-sm truncate">{player.name}</span>
             {isSelf && <span className="chip bg-bubble text-white">You</span>}
           </div>
-          <div className="text-xs font-bold text-ink-soft">
-            {player.score} pts
-          </div>
+          <div className="text-xs font-bold text-ink-soft">{player.score} pts</div>
         </div>
       </div>
 
@@ -55,23 +34,6 @@ export default function PlayerCard({
           <div className="chip bg-grape text-white !px-1.5 !py-1.5" title="Drawing">
             <Pencil size={13} />
           </div>
-        )}
-
-        {isVotingPhase && !isSelf && !hasLeft && (
-          <button
-            onClick={() => onVote(player.id)}
-            disabled={hasVoted}
-            className={`btn btn-sm ${isSelectedForVote ? 'btn-danger' : 'btn-secondary'}`}
-          >
-            {isSelectedForVote ? (
-              <>
-                <UserCheck size={14} />
-                Voted
-              </>
-            ) : (
-              'Vote'
-            )}
-          </button>
         )}
       </div>
     </div>

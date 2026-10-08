@@ -48,7 +48,7 @@ export default function MatchmakingScreen({
   const found = slots.filter(Boolean).length;
 
   return (
-    <div className="match-bg fixed inset-0 z-40 flex flex-col items-center justify-center gap-10 px-4 text-ink overflow-hidden">
+    <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-10 px-4 text-ink">
 
       <div className="relative text-center">
         <h2 className="font-display text-4xl sm:text-5xl font-bold">

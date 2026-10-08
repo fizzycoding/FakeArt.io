@@ -1,13 +1,9 @@
-import { useEffect, useState } from 'react';
-import { Clock, Pencil, RotateCw } from 'lucide-react';
+import { useState } from 'react';
+import { Clock, Pencil } from 'lucide-react';
 import DrawingCanvas from './DrawingCanvas';
 import PlayerCard from './PlayerCard';
-import { GamePhase, Player, StrokeData } from '../types/game';
-
-// The whole game is laid out on one fixed-size stage that is scaled to fit the
-// screen, so a laptop and a phone held sideways look exactly the same.
-const STAGE_W = 1280;
-const STAGE_H = 720;
+import VotingModal from './VotingModal';
+import { ChatMessage, GamePhase, Player, StrokeData } from '../types/game';
 
 const COLORS = [
   '#000000', '#EF4444', '#3B82F6', '#10B981',
@@ -29,13 +25,13 @@ interface GameScreenProps {
   hasVoted: boolean;
   votedTargetId: string;
   onVote: (targetPlayerId: string) => void;
+  chatMessages: ChatMessage[];
+  onSendMessage: (text: string) => void;
   remoteStrokes: StrokeData[];
   clearSignal: number;
   onSendStroke: (stroke: StrokeData) => void;
   onEndStroke: () => void;
 }
-
-const fitScale = () => Math.min(window.innerWidth / STAGE_W, window.innerHeight / STAGE_H);
 
 export default function GameScreen(props: GameScreenProps) {
   const {
@@ -43,19 +39,8 @@ export default function GameScreen(props: GameScreenProps) {
     drawRound, totalDrawRounds, roundNumber, maxMatches, leftIds, hasVoted, votedTargetId,
   } = props;
 
-  const [scale, setScale] = useState(fitScale);
-  const [portrait, setPortrait] = useState(() => window.innerHeight > window.innerWidth);
   const [color, setColor] = useState('#000000');
   const [brushWidth, setBrushWidth] = useState(6);
-
-  useEffect(() => {
-    const onResize = () => {
-      setScale(fitScale());
-      setPortrait(window.innerHeight > window.innerWidth);
-    };
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
 
   const isDrawingPhase = currentPhase === 'DRAWING';
   const isMyTurn = isDrawingPhase && myPlayerId === activeDrawerId;
@@ -63,17 +48,14 @@ export default function GameScreen(props: GameScreenProps) {
 
   let status = '';
   if (currentPhase === 'VOTING') status = 'Vote for the Fake Artist!';
-  else if (isMyTurn) status = 'Your turn — one stroke!';
+  else if (isMyTurn) status = 'Your turn — two strokes!';
   else if (isDrawingPhase && drawer) status = `${drawer.name} is drawing…`;
 
   return (
-    <div className="game-bg fixed inset-0 overflow-hidden flex items-center justify-center select-none">
-      <div
-        className="shrink-0 grid grid-cols-[250px_620px_280px] items-center gap-6 px-10"
-        style={{ width: STAGE_W, height: STAGE_H, transform: `scale(${scale})` }}
-      >
+    <div className="w-full h-full">
+      <div className="relative w-full h-full grid grid-cols-[250px_620px_280px] items-start content-start gap-6 px-10 pt-[50px]">
         {/* Left: players */}
-        <div className="flex flex-col gap-3 justify-center">
+        <div className="flex flex-col gap-3">
           <div className="font-display text-sm font-semibold text-ink-soft tracking-wider uppercase px-1">
             Players
           </div>
@@ -84,16 +66,12 @@ export default function GameScreen(props: GameScreenProps) {
               isCurrentDrawer={p.id === activeDrawerId && isDrawingPhase}
               isSelf={p.id === myPlayerId}
               hasLeft={leftIds.includes(p.id)}
-              currentPhase={currentPhase}
-              onVote={props.onVote}
-              hasVoted={hasVoted}
-              votedTargetId={votedTargetId}
             />
           ))}
         </div>
 
         {/* Center: canvas only */}
-        <div className="w-[620px] h-[620px] bg-white rounded-3xl overflow-hidden border-2 border-ink shadow-[0_6px_0_0_var(--color-ink)]">
+        <div className="w-[620px] h-[620px] bg-white rounded-2xl overflow-hidden border-[3px] border-grape-dark shadow-[0_4px_20px_rgba(60,30,120,0.12)]">
           <DrawingCanvas
             isMyTurn={isMyTurn}
             color={color}
@@ -106,7 +84,7 @@ export default function GameScreen(props: GameScreenProps) {
         </div>
 
         {/* Right: timer, word, tools */}
-        <div className="flex flex-col gap-4 justify-center">
+        <div className="flex flex-col gap-4">
           <div className="card !rounded-2xl px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Clock size={22} className="text-grape-dark" />
@@ -117,16 +95,14 @@ export default function GameScreen(props: GameScreenProps) {
                 isDrawingPhase ? 'bg-grape-soft text-grape-dark' : 'bg-sun/30 text-ink'
               }`}
             >
-              {isDrawingPhase ? `Round ${drawRound}/${totalDrawRounds}` : currentPhase}
+              {isDrawingPhase ? `Drawing ${drawRound}/${totalDrawRounds}` : currentPhase}
             </span>
           </div>
 
           <div className="card !rounded-2xl px-4 py-3 text-center">
             <div className="text-xs font-bold text-ink-soft uppercase tracking-wider">Your word</div>
             <div className="font-display font-bold text-2xl text-grape-dark break-words">{secretWord}</div>
-            {maxMatches > 1 && (
-              <div className="text-xs font-semibold text-ink-soft mt-1">Match {roundNumber}/{maxMatches}</div>
-            )}
+            <div className="text-xs font-bold text-ink-soft mt-1">Round {roundNumber}/{maxMatches}</div>
           </div>
 
           {status && (
@@ -168,15 +144,22 @@ export default function GameScreen(props: GameScreenProps) {
             </div>
           </div>
         </div>
+
+        {currentPhase === 'VOTING' && (
+          <VotingModal
+            players={players}
+            myPlayerId={myPlayerId}
+            leftIds={leftIds}
+            timeLeft={phaseTimeLeft}
+            hasVoted={hasVoted}
+            votedTargetId={votedTargetId}
+            onVote={props.onVote}
+            chatMessages={props.chatMessages}
+            onSendMessage={props.onSendMessage}
+          />
+        )}
       </div>
 
-      {portrait && (
-        <div className="absolute inset-0 z-10 game-bg flex flex-col items-center justify-center gap-4 text-center px-8">
-          <RotateCw size={48} className="text-grape-dark" />
-          <p className="font-display text-2xl font-bold">Rotate your device</p>
-          <p className="text-sm font-semibold text-ink-soft">FakeArt.io is played in landscape.</p>
-        </div>
-      )}
     </div>
   );
 }

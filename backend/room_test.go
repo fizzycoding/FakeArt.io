@@ -24,7 +24,14 @@ func activeDrawer(r *Room) string {
 	return r.ActiveDrawerID
 }
 
-func TestOneStrokePerTurnAndFourRounds(t *testing.T) {
+// drawStroke simulates one pen-down, move, pen-up.
+func drawStroke(r *Room, id string) {
+	r.HandleStroke(id, StrokeData{IsNewStroke: true})
+	r.HandleStroke(id, StrokeData{IsNewStroke: false})
+	r.EndStroke(id)
+}
+
+func TestTwoStrokesPerTurnAndFourRounds(t *testing.T) {
 	r := newTestRoom()
 	r.StartGame()
 	defer r.Close()
@@ -43,29 +50,39 @@ func TestOneStrokePerTurnAndFourRounds(t *testing.T) {
 		t.Fatal("stroke from non-active player was accepted")
 	}
 
+	// A second pen-down while the first is still open is ignored.
 	r.HandleStroke(first, StrokeData{IsNewStroke: true})
-	r.HandleStroke(first, StrokeData{IsNewStroke: false})
 	r.HandleStroke(first, StrokeData{IsNewStroke: true})
-	if len(r.Strokes) != 2 {
-		t.Fatalf("expected 2 points, got %d", len(r.Strokes))
+	if len(r.Strokes) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(r.Strokes))
+	}
+	r.EndStroke(first)
+	if activeDrawer(r) != first {
+		t.Fatal("turn ended after only one of two strokes")
 	}
 
-	r.EndStroke(first)
+	drawStroke(r, first)
 	second := activeDrawer(r)
 	if second == first {
-		t.Fatal("turn did not advance")
+		t.Fatal("turn did not advance after the second stroke")
 	}
 	r.EndStroke(first)
 	if activeDrawer(r) != second {
 		t.Fatal("stale EndStroke advanced the turn")
 	}
 
-	counts := map[string]int{first: 1}
-	for turn := 2; turn <= 16; turn++ {
+	drawStroke(r, second)
+	drawStroke(r, second)
+	if activeDrawer(r) == second {
+		t.Fatal("turn did not advance after two strokes")
+	}
+
+	counts := map[string]int{first: 1, second: 1}
+	for turn := 3; turn <= drawRounds*4; turn++ {
 		d := activeDrawer(r)
 		counts[d]++
-		r.HandleStroke(d, StrokeData{IsNewStroke: true})
-		r.EndStroke(d)
+		drawStroke(r, d)
+		drawStroke(r, d)
 	}
 	for id, n := range counts {
 		if n != drawRounds {
@@ -169,5 +186,84 @@ func TestGameContinuesWhenPlayersLeave(t *testing.T) {
 	}
 	if left == 0 || left > 3 {
 		t.Fatalf("unexpected player count %d", left)
+	}
+}
+
+func TestSelfVoteAllowed(t *testing.T) {
+	r := newTestRoom()
+	r.StartGame()
+	defer r.Close()
+	r.Mutex.Lock()
+	r.Phase = PhaseVoting
+	r.Mutex.Unlock()
+	r.CastVote("a", "a")
+	if r.Votes["a"] != "a" {
+		t.Fatal("a player should be able to vote for themselves")
+	}
+}
+
+func TestNewPlayerTakesOverVacatedSeat(t *testing.T) {
+	r := NewRoom("MID", false)
+	for _, id := range []string{"a", "b", "c", "d"} {
+		r.AddPlayer(testPlayer(id))
+	}
+	r.StartGame()
+	defer r.Close()
+
+	if r.TryJoinMidGame(testPlayer("x")) {
+		t.Fatal("joined a full game")
+	}
+
+	impostor := r.ImpostorID
+	r.RemovePlayer(impostor)
+
+	newcomer := testPlayer("x")
+	if !r.TryJoinMidGame(newcomer) {
+		t.Fatal("could not join a game with an open seat")
+	}
+	if r.ImpostorID != "x" {
+		t.Fatalf("newcomer should inherit the Fake Artist seat, impostor is %s", r.ImpostorID)
+	}
+	seated := 0
+	for _, id := range r.TurnOrder {
+		if id == impostor {
+			t.Fatal("old player still in the turn order")
+		}
+		if id == "x" {
+			seated++
+		}
+	}
+	if seated != 1 {
+		t.Fatalf("newcomer seated %d times", seated)
+	}
+	if newcomer.Room() != "MID" {
+		t.Fatal("newcomer not assigned to the room")
+	}
+	if r.TryJoinMidGame(testPlayer("y")) {
+		t.Fatal("joined a full game after refill")
+	}
+}
+
+func TestPrivateAndFinishedGamesRefuseMidGameJoin(t *testing.T) {
+	private := newTestRoom()
+	private.StartGame()
+	defer private.Close()
+	private.RemovePlayer("a")
+	if private.TryJoinMidGame(testPlayer("x")) {
+		t.Fatal("private rooms must not accept mid-game joins")
+	}
+
+	public := NewRoom("DONE", false)
+	for _, id := range []string{"a", "b", "c", "d"} {
+		public.AddPlayer(testPlayer(id))
+	}
+	public.StartGame()
+	defer public.Close()
+	public.RemovePlayer("a")
+	public.Mutex.Lock()
+	public.GameOver = true
+	public.Mutex.Unlock()
+	if public.TryJoinMidGame(testPlayer("x")) {
+		t.Fatal("a finished game must not accept new players")
 	}
 }

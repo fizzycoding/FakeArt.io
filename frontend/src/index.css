@@ -1,6 +1,14 @@
 @import "tailwindcss";
 
 @theme {
+  /* The app is drawn on a fixed, scaled stage, so size breakpoints must never
+     change the layout between a phone and a laptop. */
+  --breakpoint-sm: 0px;
+  --breakpoint-md: 0px;
+  --breakpoint-lg: 0px;
+  --breakpoint-xl: 0px;
+  --breakpoint-2xl: 0px;
+
   --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Fredoka", "Outfit", ui-sans-serif, sans-serif;
 

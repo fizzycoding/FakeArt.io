@@ -229,3 +229,9 @@
 @media (prefers-reduced-motion: reduce) {
   .match-bg::before, .match-cut, .match-lock { animation: none; }
 }
+
+/* ---------- Game screen ---------- */
+
+.game-bg {
+  background: linear-gradient(135deg, #ffffff 0%, #f3ecff 55%, #e6dbff 100%);
+}

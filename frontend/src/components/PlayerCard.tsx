@@ -52,9 +52,8 @@ export default function PlayerCard({
         {hasLeft && <div className="chip bg-white text-ink-soft !text-[11px] !px-2 !py-1">Left</div>}
 
         {isCurrentDrawer && !hasLeft && (
-          <div className="chip bg-grape text-white !text-[11px] !px-2 !py-1">
-            <Pencil size={12} />
-            Drawing
+          <div className="chip bg-grape text-white !px-1.5 !py-1.5" title="Drawing">
+            <Pencil size={13} />
           </div>
         )}
 

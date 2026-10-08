@@ -1,15 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Play, Users, Plus, Link2, LogIn, Settings, Clock, Copy, ArrowLeft
+  Play, Users, Plus, Link2, LogIn, Settings, Copy, ArrowLeft
 } from 'lucide-react';
-import DrawingCanvas from './components/DrawingCanvas';
-import PlayerCard from './components/PlayerCard';
-import ChatPanel from './components/ChatPanel';
+import GameScreen from './components/GameScreen';
 import ResultsModal from './components/ResultsModal';
 import ProfileModal from './components/ProfileModal';
 import MatchmakingScreen from './components/MatchmakingScreen';
 import { 
-  Player, StrokeData, ChatMessage, RoundResults, PlayerProfile, GamePhase 
+  Player, StrokeData, RoundResults, PlayerProfile, GamePhase 
 } from './types/game';
 import { 
   triggerGameplayStart, triggerGameplayStop, triggerHappyTime 
@@ -65,7 +63,6 @@ export default function App() {
 
   const [remoteStrokes, setRemoteStrokes] = useState<StrokeData[]>([]);
   const [clearSignal, setClearSignal] = useState(0);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [votedTargetId, setVotedTargetId] = useState('');
   const [hasVoted, setHasVoted] = useState(false);
   const [roundResults, setRoundResults] = useState<RoundResults | null>(null);
@@ -115,7 +112,10 @@ export default function App() {
     };
 
     ws.onclose = () => {
-      setScreen('MENU');
+      if (wsRef.current === ws) {
+        wsRef.current = null;
+        setScreen('MENU');
+      }
     };
 
     wsRef.current = ws;
@@ -181,7 +181,6 @@ export default function App() {
         setMaxMatches(payload.maxMatches || 1);
         setPlayers(payload.players || []);
         setRemoteStrokes([]);
-        setChatMessages([]);
         setHasVoted(false);
         setVotedTargetId('');
         setRoundResults(null);
@@ -210,10 +209,6 @@ export default function App() {
       case 'CANVAS_CLEARED':
         setRemoteStrokes([]);
         setClearSignal((prev) => prev + 1);
-        break;
-
-      case 'CHAT_MESSAGE':
-        setChatMessages((prev) => [...prev, payload]);
         break;
 
       case 'VOTE_REGISTERED':
@@ -300,10 +295,6 @@ export default function App() {
     sendWSMessage('END_STROKE');
   };
 
-  const handleSendMessage = (text: string) => {
-    sendWSMessage('SEND_CHAT', { message: text });
-  };
-
   const handleCastVote = (targetPlayerId: string) => {
     if (hasVoted) return;
     setVotedTargetId(targetPlayerId);
@@ -311,11 +302,20 @@ export default function App() {
   };
 
   const handleReturnToMenu = () => {
-    setMatchFound(false);
     triggerGameplayStop();
-    if (wsRef.current) {
-      wsRef.current.close();
-    }
+    const ws = wsRef.current;
+    wsRef.current = null;
+    ws?.close();
+    setMatchFound(false);
+    setCurrentPhase('LOBBY');
+    setRoundResults(null);
+    setPlayers([]);
+    setQueuePlayers([]);
+    setLeftIds([]);
+    setRemoteStrokes([]);
+    setHasVoted(false);
+    setVotedTargetId('');
+    setConnError('');
     setScreen('MENU');
   };
 
@@ -499,70 +499,26 @@ export default function App() {
         )}
 
         {screen === 'GAME' && (
-          <div className="grid grid-cols-1 md:grid-cols-[260px_1fr_300px] gap-5 w-full max-w-7xl mx-auto p-2 sm:p-4 pop-in">
-            {/* Left Column: Player Cards */}
-            <div className="flex flex-col gap-3 order-2 md:order-1">
-              <div className="font-display text-sm font-semibold text-ink-soft flex justify-between tracking-wider uppercase px-1">
-                <span>Players</span>
-                {maxMatches > 1 && <span>Match {roundNumber}/{maxMatches}</span>}
-              </div>
-              {players.map((p) => (
-                <PlayerCard
-                  key={p.id}
-                  player={p}
-                  isCurrentDrawer={p.id === activeDrawerId && currentPhase === 'DRAWING'}
-                  isSelf={p.id === myPlayerId}
-                  hasLeft={leftIds.includes(p.id)}
-                  currentPhase={currentPhase}
-                  onVote={handleCastVote}
-                  hasVoted={hasVoted}
-                  votedTargetId={votedTargetId}
-                />
-              ))}
-            </div>
-
-            {/* Center Column: Phase bar + Canvas */}
-            <div className="flex flex-col gap-4 items-center w-full order-1 md:order-2">
-              <div className="card !rounded-2xl px-4 py-2.5 flex items-center justify-between w-full max-w-[520px]">
-                <div className="flex items-center gap-2 min-w-[64px]">
-                  <Clock size={20} className="text-grape-dark" />
-                  <span className="font-display font-bold text-xl tabular-nums">
-                    {phaseTimeLeft}s
-                  </span>
-                </div>
-
-                <div className="text-center">
-                  <span className="font-display font-semibold text-ink-soft">
-                    Your word:{' '}
-                    <strong className="text-grape-dark font-bold text-lg">{secretWord}</strong>
-                  </span>
-                </div>
-
-                <div className={`chip !text-[11px] !px-2 !py-1 ${
-                  currentPhase === 'DRAWING' ? 'bg-grape-soft text-grape-dark' : 'bg-sun/30 text-ink'
-                }`}>
-                  {currentPhase === 'DRAWING' ? `Round ${drawRound}/${totalDrawRounds}` : currentPhase}
-                </div>
-              </div>
-
-              <DrawingCanvas
-                isMyTurn={myPlayerId === activeDrawerId && currentPhase === 'DRAWING'}
-                onSendStroke={handleSendStroke}
-                onEndStroke={handleEndStroke}
-                remoteStrokes={remoteStrokes}
-                clearSignal={clearSignal}
-              />
-            </div>
-
-            {/* Right Column: Chat Panel */}
-            <div className="flex flex-col order-3">
-              <ChatPanel
-                currentPhase={currentPhase}
-                chatMessages={chatMessages}
-                onSendMessage={handleSendMessage}
-              />
-            </div>
-          </div>
+          <GameScreen
+            players={players}
+            myPlayerId={myPlayerId}
+            activeDrawerId={activeDrawerId}
+            currentPhase={currentPhase}
+            phaseTimeLeft={phaseTimeLeft}
+            secretWord={secretWord}
+            drawRound={drawRound}
+            totalDrawRounds={totalDrawRounds}
+            roundNumber={roundNumber}
+            maxMatches={maxMatches}
+            leftIds={leftIds}
+            hasVoted={hasVoted}
+            votedTargetId={votedTargetId}
+            onVote={handleCastVote}
+            remoteStrokes={remoteStrokes}
+            clearSignal={clearSignal}
+            onSendStroke={handleSendStroke}
+            onEndStroke={handleEndStroke}
+          />
         )}
       </main>
 

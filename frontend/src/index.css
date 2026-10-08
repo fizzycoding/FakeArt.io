@@ -1,0 +1,168 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fredoka", "Outfit", ui-sans-serif, sans-serif;
+
+  --color-ink: #12101f;
+  --color-ink-soft: #5b5873;
+  --color-paper: #f7f5ff;
+  --color-grape: #a447ff;
+  --color-grape-dark: #8a2be2;
+  --color-grape-soft: #ece3ff;
+  --color-bubble: #ff4fb8;
+  --color-bubble-soft: #ffe0f3;
+  --color-mint: #19b57a;
+  --color-sun: #ffb020;
+  --color-cherry: #ee3f5c;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply font-sans text-ink min-h-screen overflow-x-hidden antialiased;
+    background-color: var(--color-paper);
+    background-image: url('/bg-fakeart.png');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+  }
+}
+
+/* ---------- Shared building blocks ---------- */
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+/* White sticker-style card with a chunky ink outline */
+.card {
+  @apply bg-white/90 backdrop-blur-sm border-2 border-ink rounded-3xl;
+  box-shadow: 0 5px 0 0 var(--color-ink);
+}
+
+.card-soft {
+  @apply bg-white/80 backdrop-blur-sm border-2 border-ink/15 rounded-2xl;
+}
+
+/* Chunky buttons that "press" into their shadow */
+.btn {
+  @apply relative inline-flex items-center justify-center gap-2.5 font-display font-semibold
+    border-2 border-ink rounded-2xl cursor-pointer select-none
+    transition-[transform,box-shadow,background-color] duration-100;
+  box-shadow: 0 5px 0 0 var(--color-ink);
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 7px 0 0 var(--color-ink);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow: 0 1px 0 0 var(--color-ink);
+}
+
+.btn:disabled {
+  @apply opacity-50 cursor-not-allowed;
+}
+
+.btn-primary {
+  @apply bg-grape text-white hover:bg-grape-dark;
+}
+
+.btn-secondary {
+  @apply bg-white text-ink hover:bg-grape-soft;
+}
+
+.btn-danger {
+  @apply bg-cherry text-white;
+}
+
+.btn-sm {
+  @apply text-sm px-3.5 py-2 rounded-xl;
+  box-shadow: 0 3px 0 0 var(--color-ink);
+}
+
+.btn-sm:hover:not(:disabled) {
+  box-shadow: 0 5px 0 0 var(--color-ink);
+}
+
+.input {
+  @apply w-full bg-white border-2 border-ink rounded-2xl px-4 py-3 text-ink font-semibold
+    placeholder:text-ink-soft/50 focus:outline-none focus:ring-4 focus:ring-grape/30
+    disabled:opacity-50;
+}
+
+.chip {
+  @apply inline-flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider
+    px-1.5 py-0.5 rounded-md border-2 border-ink;
+}
+
+/* ---------- Logo ---------- */
+
+.logo {
+  @apply font-display font-bold leading-none tracking-tight text-ink select-none;
+  transform: rotate(-4deg);
+  text-shadow: 0 4px 0 rgba(18, 16, 31, 0.08);
+}
+
+.logo em {
+  @apply not-italic text-grape;
+}
+
+.logo-spark {
+  @apply absolute rounded-full bg-bubble;
+  height: 6px;
+  width: 22px;
+}
+
+/* ---------- Canvas ---------- */
+
+.canvas-wrapper-1to1 {
+  @apply relative w-full max-w-[520px] max-h-[520px] aspect-square bg-white rounded-3xl overflow-hidden mx-auto border-2 border-ink;
+  box-shadow: 0 6px 0 0 var(--color-ink);
+}
+
+.canvas-wrapper-1to1 canvas {
+  @apply w-full h-full block cursor-crosshair touch-none;
+}
+
+/* ---------- Motion ---------- */
+
+@keyframes wobble {
+  0%, 100% { transform: rotate(-4deg) translateY(0); }
+  50% { transform: rotate(-3deg) translateY(-4px); }
+}
+
+.wobble {
+  animation: wobble 4s ease-in-out infinite;
+}
+
+@keyframes pulseRing {
+  0%, 100% { box-shadow: 0 5px 0 0 var(--color-ink), 0 0 0 0 rgba(164, 71, 255, 0.45); }
+  50% { box-shadow: 0 5px 0 0 var(--color-ink), 0 0 0 8px rgba(164, 71, 255, 0); }
+}
+
+.pulse-active {
+  animation: pulseRing 2s infinite ease-out;
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.pop-in {
+  animation: popIn 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wobble, .pulse-active, .pop-in { animation: none; }
+  .btn { transition: none; }
+}

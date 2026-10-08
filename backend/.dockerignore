@@ -1,0 +1,7 @@
+# Keep the build context small and the image free of local files.
+*.exe
+*_test.go
+.git
+.gitignore
+Dockerfile
+.dockerignore

@@ -1,0 +1,18 @@
+# Render Blueprint: creates the FakeArt.io game server on Render's free plan.
+# In the Render dashboard choose New > Blueprint and select this repository.
+services:
+  - type: web
+    name: fakeart-server
+    runtime: docker
+    plan: free
+    # The region can't be changed after the service is created. Options:
+    # oregon, ohio, virginia, frankfurt, singapore
+    region: singapore
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    # Render checks this address to know the server is up.
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    # Optional: let websites other than CrazyGames, localhost and the server's own
+    # address connect. Add it in the dashboard (Environment) if you need it:
+    #   ALLOWED_ORIGINS = https://my-own-site.example

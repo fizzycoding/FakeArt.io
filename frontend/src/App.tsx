@@ -34,6 +34,11 @@ const getWebSocketUrl = (): string => {
 
 const WS_URL = getWebSocketUrl();
 
+// A free server that has gone to sleep refuses connections while it boots (up to about a
+// minute), so the first connection keeps retrying quietly before giving up.
+const CONNECT_RETRY_MS = 2500;
+const MAX_CONNECT_ATTEMPTS = 36;
+
 export default function App() {
   const [screen, setScreen] = useState<'MENU' | 'LOBBY' | 'GAME'>('MENU');
   const [profile, setProfile] = useState<PlayerProfile>(() => {
@@ -66,6 +71,9 @@ export default function App() {
   // 0 = the next room needs an ad; 1 = an ad was watched and no room made yet, so the next one is free.
   const [roomCredit, setRoomCreditState] = useState<0 | 1>(() => getRoomCredit());
   const [adNotice, setAdNotice] = useState('');
+  const [connecting, setConnecting] = useState(false); // opening the connection to the server
+  const [showConnecting, setShowConnecting] = useState(false); // ...and it's taking long enough to show
+  const [connectingSlow, setConnectingSlow] = useState(false);
   const [chatOff, setChatOff] = useState(false);
   const [roomCode, setRoomCode] = useState('');
   const [joinInputCode, setJoinInputCode] = useState('');
@@ -101,6 +109,9 @@ export default function App() {
   const roomCodeRef = useRef('');
   // Callbacks waiting for the connection that is currently opening.
   const pendingOpenRef = useRef<Array<() => void>>([]);
+  const connectingRef = useRef(false);
+  const attemptsRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const profileRef = useRef<PlayerProfile | null>(null);
   const [roundResults, setRoundResults] = useState<RoundResults | null>(null);
 
@@ -185,25 +196,64 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the clock should trigger a tick
   }, [phaseTimeLeft]);
 
-  // There is only ever one connection. A second request while one is still
-  // opening (a fast double-click on Play) waits for it instead of opening another.
+  // Only show the "Connecting" screen if it takes a moment, so quick connections don't flash it.
+  useEffect(() => {
+    if (!connecting) {
+      setShowConnecting(false);
+      setConnectingSlow(false);
+      return;
+    }
+    const show = setTimeout(() => setShowConnecting(true), 500);
+    const slow = setTimeout(() => setConnectingSlow(true), 5000);
+    return () => {
+      clearTimeout(show);
+      clearTimeout(slow);
+    };
+  }, [connecting]);
+
+  // Stops trying to connect (or drops the connection) and forgets anyone waiting on it.
+  const cancelConnecting = () => {
+    connectingRef.current = false;
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = null;
+    pendingOpenRef.current = [];
+    const ws = wsRef.current;
+    wsRef.current = null;
+    ws?.close();
+    setConnecting(false);
+  };
+
+  // Only the menu-level code calls this. There is only ever one connection: while it is
+  // being opened (a fast double-click, or a sleeping server waking up) further requests
+  // wait for it instead of opening more.
   const connectWebSocket = (onOpenCallback?: () => void) => {
-    const existing = wsRef.current;
-    if (existing && existing.readyState === WebSocket.OPEN) {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       if (onOpenCallback) onOpenCallback();
       return;
     }
-    if (existing && existing.readyState === WebSocket.CONNECTING) {
+    if (connectingRef.current) {
       if (onOpenCallback) pendingOpenRef.current.push(onOpenCallback);
       return;
     }
 
     setConnError('');
-    const ws = new WebSocket(WS_URL);
+    connectingRef.current = true;
+    attemptsRef.current = 0;
     pendingOpenRef.current = onOpenCallback ? [onOpenCallback] : [];
+    setConnecting(true);
+    openSocket();
+  };
+
+  const openSocket = () => {
+    const ws = new WebSocket(WS_URL);
+    let opened = false;
+    wsRef.current = ws;
 
     ws.onopen = () => {
       if (wsRef.current !== ws) return;
+      opened = true;
+      connectingRef.current = false;
+      setConnecting(false);
       const waiting = pendingOpenRef.current;
       pendingOpenRef.current = [];
       waiting.forEach((fn) => fn());
@@ -218,19 +268,27 @@ export default function App() {
       } catch (e) {}
     };
 
-    ws.onerror = () => {
-      if (wsRef.current === ws) setConnError("Can't reach the game server. Is the backend running?");
-    };
-
     ws.onclose = () => {
-      if (wsRef.current === ws) {
-        wsRef.current = null;
-        pendingOpenRef.current = [];
-        setScreen('MENU');
-      }
-    };
+      if (wsRef.current !== ws) return;
 
-    wsRef.current = ws;
+      if (!opened) {
+        // Couldn't connect yet. Keep trying for a while, then give up with a message.
+        if (connectingRef.current && attemptsRef.current < MAX_CONNECT_ATTEMPTS) {
+          attemptsRef.current += 1;
+          retryTimerRef.current = setTimeout(() => {
+            if (connectingRef.current) openSocket();
+          }, CONNECT_RETRY_MS);
+          return;
+        }
+        cancelConnecting();
+        setConnError("Can't reach the game server. Please try again in a moment.");
+        return;
+      }
+
+      wsRef.current = null;
+      pendingOpenRef.current = [];
+      setScreen('MENU');
+    };
   };
 
   const sendWSMessage = (type: string, payload: any = {}) => {
@@ -571,10 +629,7 @@ export default function App() {
     triggerGameplayStop();
     roomCodeRef.current = '';
     leaveSharedRoom();
-    const ws = wsRef.current;
-    wsRef.current = null;
-    pendingOpenRef.current = [];
-    ws?.close();
+    cancelConnecting();
     setMatchFound(false);
     setCurrentPhase('LOBBY');
     setRoundResults(null);
@@ -842,6 +897,21 @@ export default function App() {
           onSaveProfile={(updated) => setProfile(updated)}
           onClose={() => setShowProfile(false)}
         />
+      )}
+
+      {showConnecting && (
+        <div className="absolute inset-0 z-[90] flex flex-col items-center justify-center gap-4 bg-ink/40 backdrop-blur-sm px-8 text-center">
+          <Loader2 size={44} className="animate-spin text-white" />
+          <p className="font-display text-2xl font-bold text-white">Connecting to the game server…</p>
+          {connectingSlow && (
+            <p className="text-base font-semibold text-white/85 max-w-md">
+              The server is waking up. This can take up to a minute the first time.
+            </p>
+          )}
+          <button onClick={cancelConnecting} className="btn btn-secondary px-8 py-2.5 text-base">
+            Cancel
+          </button>
+        </div>
       )}
 
       {adBusy && (

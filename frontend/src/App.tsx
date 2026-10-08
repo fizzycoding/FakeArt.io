@@ -95,6 +95,7 @@ export default function App() {
   const [votedTargetId, setVotedTargetId] = useState('');
   const [hasVoted, setHasVoted] = useState(false);
   const [votedIds, setVotedIds] = useState<string[]>([]);
+  const [voteNotice, setVoteNotice] = useState('');
   // The socket handlers are created once, so they read the player id from a ref.
   const myIdRef = useRef('');
   const roomCodeRef = useRef('');
@@ -304,6 +305,7 @@ export default function App() {
         setChatMessages([]);
         setHasVoted(false);
         setVotedIds([]);
+        setVoteNotice('');
         setVotedTargetId('');
         setRoundResults(null);
         setScreen('GAME');
@@ -366,6 +368,25 @@ export default function App() {
       case 'CANVAS_CLEARED':
         setRemoteStrokes([]);
         setClearSignal((prev) => prev + 1);
+        break;
+
+      case 'VOTE_REJECTED':
+        // The server didn't count it (e.g. that player just left): unlock so they can pick again.
+        setHasVoted(false);
+        setVotedTargetId('');
+        if (payload.reason === 'target_gone' || payload.reason === 'not_in_room') {
+          setVoteNotice("That vote didn't go through. Pick again!");
+        }
+        break;
+
+      case 'VOTE_RESET':
+        // Someone's vote was cleared (the player they picked was replaced).
+        setVotedIds((prev) => prev.filter((id) => id !== payload.voterId));
+        if (payload.voterId === myIdRef.current) {
+          setHasVoted(false);
+          setVotedTargetId('');
+          setVoteNotice('The player you picked left, so your vote was cleared. Vote again!');
+        }
         break;
 
       case 'VOTE_REGISTERED':
@@ -541,7 +562,8 @@ export default function App() {
   const handleCastVote = (targetPlayerId: string) => {
     if (hasVoted) return;
     setVotedTargetId(targetPlayerId);
-    setHasVoted(true); // votes are final, so lock right away
+    setVoteNotice('');
+    setHasVoted(true); // locked right away; the server unlocks it if the vote can't count
     sendWSMessage('CAST_VOTE', { targetPlayerId });
   };
 
@@ -563,6 +585,7 @@ export default function App() {
     setChatMessages([]);
     setHasVoted(false);
     setVotedIds([]);
+    setVoteNotice('');
     setVotedTargetId('');
     setConnError('');
     setScreen('MENU');
@@ -781,6 +804,7 @@ export default function App() {
             leftIds={leftIds}
             hasVoted={hasVoted}
             votedIds={votedIds}
+            voteNotice={voteNotice}
             votedTargetId={votedTargetId}
             onVote={handleCastVote}
             chatMessages={chatMessages}

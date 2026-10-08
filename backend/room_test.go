@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -519,5 +520,91 @@ func TestOriginCheck(t *testing.T) {
 		if checkOrigin(mk(c[0], c[1])) {
 			t.Errorf("origin %q should be rejected", c[0])
 		}
+	}
+}
+
+func drain(p *Player) []string {
+	var types []string
+	for {
+		select {
+		case raw := <-p.Send:
+			var msg struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(raw, &msg) == nil {
+				types = append(types, msg.Type)
+			}
+		default:
+			return types
+		}
+	}
+}
+
+func contains(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCastVoteReportsWhyItFailed(t *testing.T) {
+	r := newTestRoom()
+	r.StartGame()
+	defer r.Close()
+
+	if got := r.CastVote("a", "b"); got != VoteTooLate {
+		t.Fatalf("voting isn't open yet, got %v", got)
+	}
+
+	r.Mutex.Lock()
+	r.Phase = PhaseVoting
+	r.Mutex.Unlock()
+
+	if got := r.CastVote("a", "b"); got != VoteAccepted {
+		t.Fatalf("expected accepted, got %v", got)
+	}
+	if got := r.CastVote("a", "c"); got != VoteAlreadyCast {
+		t.Fatalf("votes are final, got %v", got)
+	}
+	if got := r.CastVote("stranger", "b"); got != VoteNotInRoom {
+		t.Fatalf("a stranger can't vote, got %v", got)
+	}
+	r.RemovePlayer("d")
+	if got := r.CastVote("c", "d"); got != VoteTargetGone {
+		t.Fatalf("voting for someone who left should say so, got %v", got)
+	}
+	// ...and the voter can still pick somebody else afterwards.
+	if got := r.CastVote("c", "b"); got != VoteAccepted {
+		t.Fatalf("a rejected vote must not use up the player's vote, got %v", got)
+	}
+}
+
+func TestSeatTakeoverTellsVotersTheirVoteWasCleared(t *testing.T) {
+	r := NewRoom("RESET", false)
+	players := map[string]*Player{}
+	for _, id := range []string{"a", "b", "c", "d"} {
+		players[id] = testPlayer(id)
+		r.AddPlayer(players[id])
+	}
+	r.StartGame()
+	defer r.Close()
+
+	r.RemovePlayer("d") // leaves during the round: their seat is now open
+	r.Mutex.Lock()
+	r.Phase = PhaseVoting
+	r.Votes = map[string]string{"a": "d"} // a had voted for the player who left
+	r.Mutex.Unlock()
+	drain(players["a"])
+
+	if !r.TryJoinMidGame(testPlayer("newcomer")) {
+		t.Fatal("the open seat should take a newcomer")
+	}
+	if !contains(drain(players["a"]), "VOTE_RESET") {
+		t.Fatal("a should be told their vote was cleared")
+	}
+	if got := r.CastVote("a", "b"); got != VoteAccepted {
+		t.Fatalf("a should be able to vote again, got %v", got)
 	}
 }

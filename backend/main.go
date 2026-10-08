@@ -266,7 +266,10 @@ func handleClientMessage(p *Player, msg WSMessage) {
 			var payload CastVotePayload
 			json.Unmarshal(msg.Payload, &payload)
 			if payload.TargetPlayerID != "" {
-				room.CastVote(p.ID, payload.TargetPlayerID)
+				// A vote that doesn't count must not leave the player thinking it did.
+				if res := room.CastVote(p.ID, payload.TargetPlayerID); res != VoteAccepted && res != VoteAlreadyCast {
+					p.SendMsg("VOTE_REJECTED", map[string]interface{}{"reason": res.reason()})
+				}
 			}
 		}
 	}

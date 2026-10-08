@@ -434,15 +434,48 @@ func (r *Room) startVotingPhase() {
 	})
 }
 
-func (r *Room) CastVote(voterID, targetID string) {
+// VoteResult says what happened to a CAST_VOTE, so a rejected vote can be
+// reported back instead of silently vanishing.
+type VoteResult int
+
+const (
+	VoteAccepted    VoteResult = iota
+	VoteTooLate                // voting isn't open (it just ended, or hasn't started)
+	VoteNotInRoom              // the voter isn't in this room any more
+	VoteTargetGone             // the player being voted for has left
+	VoteAlreadyCast            // votes are final
+)
+
+func (v VoteResult) reason() string {
+	switch v {
+	case VoteTooLate:
+		return "too_late"
+	case VoteNotInRoom:
+		return "not_in_room"
+	case VoteTargetGone:
+		return "target_gone"
+	case VoteAlreadyCast:
+		return "already_voted"
+	}
+	return ""
+}
+
+func (r *Room) CastVote(voterID, targetID string) VoteResult {
 	r.Mutex.Lock()
-	if r.Phase != PhaseVoting || !r.hasPlayerLocked(voterID) || !r.hasPlayerLocked(targetID) {
+	switch {
+	case r.Phase != PhaseVoting:
 		r.Mutex.Unlock()
-		return
+		return VoteTooLate
+	case !r.hasPlayerLocked(voterID):
+		r.Mutex.Unlock()
+		return VoteNotInRoom
+	case !r.hasPlayerLocked(targetID):
+		r.Mutex.Unlock()
+		return VoteTargetGone
 	}
 	if _, already := r.Votes[voterID]; already {
 		r.Mutex.Unlock() // a vote is final
-		return
+		return VoteAlreadyCast
 	}
 	r.Votes[voterID] = targetID
 	allVoted := len(r.Votes) >= len(r.Players)
@@ -453,6 +486,7 @@ func (r *Room) CastVote(voterID, targetID string) {
 	if allVoted {
 		r.calculateResults()
 	}
+	return VoteAccepted
 }
 
 func (r *Room) hasPlayerLocked(id string) bool {
@@ -564,6 +598,7 @@ func (r *Room) HandleChat(sender *Player, text string) {
 // During a round they take over the empty turn-order seat (and the Fake
 // Artist role if that is whose seat it was); between rounds they simply join.
 func (r *Room) TryJoinMidGame(p *Player) bool {
+	var clearedVoters []string // voters whose pick was the seat the newcomer now holds
 	r.Mutex.Lock()
 	if r.IsCustom || r.GameOver || len(r.Players) >= maxPlayers || len(r.Players) == 0 {
 		r.Mutex.Unlock()
@@ -588,6 +623,7 @@ func (r *Room) TryJoinMidGame(p *Player) bool {
 		for voter, target := range r.Votes {
 			if target == old {
 				delete(r.Votes, voter)
+				clearedVoters = append(clearedVoters, voter)
 			}
 		}
 	case PhaseResults:
@@ -635,5 +671,9 @@ func (r *Room) TryJoinMidGame(p *Player) bool {
 
 	p.SendMsg("SYNC_GAME", snapshot)
 	r.Broadcast("PLAYER_JOINED", map[string]interface{}{"players": players})
+	// Their vote no longer counts, so let them (and everyone's "Voted" badges) know they can vote again.
+	for _, voter := range clearedVoters {
+		r.Broadcast("VOTE_RESET", map[string]interface{}{"voterId": voter})
+	}
 	return true
 }

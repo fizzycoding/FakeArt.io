@@ -24,6 +24,7 @@ interface GameScreenProps {
   leftIds: string[];
   hasVoted: boolean;
   votedIds: string[];
+  voteNotice: string;
   votedTargetId: string;
   onVote: (targetPlayerId: string) => void;
   chatMessages: ChatMessage[];
@@ -155,6 +156,7 @@ export default function GameScreen(props: GameScreenProps) {
             timeLeft={phaseTimeLeft}
             hasVoted={hasVoted}
             votedIds={props.votedIds}
+            notice={props.voteNotice}
             votedTargetId={votedTargetId}
             onVote={props.onVote}
             chatMessages={props.chatMessages}

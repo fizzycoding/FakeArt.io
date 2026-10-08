@@ -10,6 +10,7 @@ interface VotingModalProps {
   timeLeft: number;
   hasVoted: boolean;
   votedIds: string[];
+  notice: string;
   votedTargetId: string;
   onVote: (targetPlayerId: string) => void;
   chatMessages: ChatMessage[];
@@ -20,7 +21,7 @@ interface VotingModalProps {
 const fmt = (secs: number) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
 
 export default function VotingModal({
-  players, myPlayerId, leftIds, timeLeft, hasVoted, votedIds, votedTargetId, onVote, chatMessages, onSendMessage, chatDisabled,
+  players, myPlayerId, leftIds, timeLeft, hasVoted, votedIds, notice, votedTargetId, onVote, chatMessages, onSendMessage, chatDisabled,
 }: VotingModalProps) {
   const [draft, setDraft] = useState('');
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -96,6 +97,7 @@ export default function VotingModal({
                 </div>
               );
             })}
+            {notice && <p className="text-xs font-bold text-cherry text-center">{notice}</p>}
             {hasVoted && (
               <p className="text-xs font-semibold text-ink-soft text-center">Vote locked in. Waiting for the others…</p>
             )}

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { X, Trophy, Percent, Gamepad2 } from 'lucide-react';
 import { PlayerProfile } from '../types/game';
+import Avatar from './Avatar';
+import { normalizeAvatar, useAvatarList } from '../utils/avatars';
 
 interface ProfileModalProps {
   profile: PlayerProfile;
@@ -8,11 +10,11 @@ interface ProfileModalProps {
   onClose: () => void;
 }
 
-const EMOJI_AVATARS = ['🎨', '🦊', '🚀', '👑', '🤖', '👾', '🐱', '🦄', '🐼', '🍕'];
 
 export default function ProfileModal({ profile, onSaveProfile, onClose }: ProfileModalProps) {
   const [name, setName] = useState(profile.name);
-  const [avatar, setAvatar] = useState(profile.avatar);
+  const [avatar, setAvatar] = useState(normalizeAvatar(profile.avatar));
+  const avatars = useAvatarList();
 
   const winRate = profile.matchesPlayed > 0
     ? Math.round((profile.matchesWon / profile.matchesPlayed) * 100)
@@ -61,18 +63,19 @@ export default function ProfileModal({ profile, onSaveProfile, onClose }: Profil
         <div>
           <label className="text-sm font-bold text-ink-soft block mb-2">Choose avatar</label>
           <div className="flex flex-wrap gap-2 justify-center">
-            {EMOJI_AVATARS.map((emoji) => (
+            {avatars.map((id) => (
               <button
-                key={emoji}
+                key={id}
                 type="button"
-                onClick={() => setAvatar(emoji)}
-                className={`text-2xl w-12 h-12 rounded-2xl border-2 transition-all cursor-pointer ${
-                  avatar === emoji
-                    ? 'border-ink bg-grape-soft scale-110 shadow-[0_3px_0_0_var(--color-ink)]'
-                    : 'border-ink/15 bg-white hover:bg-grape-soft/60'
+                onClick={() => setAvatar(id)}
+                aria-label={`Avatar ${id}`}
+                className={`w-16 h-16 rounded-full overflow-hidden transition-all cursor-pointer ${
+                  avatar === id
+                    ? 'ring-2 ring-grape ring-offset-2 scale-105'
+                    : 'opacity-80 hover:opacity-100'
                 }`}
               >
-                {emoji}
+                <Avatar id={id} />
               </button>
             ))}
           </div>

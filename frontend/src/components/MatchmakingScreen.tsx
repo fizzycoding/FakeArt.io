@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Player } from '../types/game';
+import Avatar from './Avatar';
+import { useAvatarList } from '../utils/avatars';
 
-const FLASH_AVATARS = ['🎨', '🦊', '🚀', '👑', '🤖', '👾', '🐱', '🦄', '🐼', '🍕', '🐸', '🦁', '🐙', '🌈', '👻'];
 const SLOT_COUNT = 4;
 
 interface MatchmakingScreenProps {
@@ -13,27 +14,42 @@ interface MatchmakingScreenProps {
   onCancel: () => void;
 }
 
-/** An empty slot: avatars cut past rapidly until a real player takes the spot. */
-function FlashingAvatar() {
-  const [emoji, setEmoji] = useState(() => FLASH_AVATARS[Math.floor(Math.random() * FLASH_AVATARS.length)]);
-  const [tick, setTick] = useState(0);
+/**
+ * An empty slot: a slot-machine reel. A tall strip of avatars scrolls past the
+ * round window until a real player takes the spot.
+ */
+function SlotReel() {
+  const list = useAvatarList();
+  // Each reel gets its own starting point and speed so the four don't spin in lockstep.
+  const [seed] = useState(() => ({ offset: Math.random(), speed: Math.random(), phase: Math.random() }));
 
-  useEffect(() => {
-    const id = setInterval(() => {
-      setEmoji((prev) => {
-        let next = prev;
-        while (next === prev) next = FLASH_AVATARS[Math.floor(Math.random() * FLASH_AVATARS.length)];
-        return next;
-      });
-      setTick((t) => t + 1);
-    }, 110);
-    return () => clearInterval(id);
-  }, []);
+  const reel = useMemo(() => {
+    const count = Math.max(6, list.length * 2);
+    const offset = Math.floor(seed.offset * list.length);
+    const strip = Array.from({ length: count }, (_, i) => list[(offset + i) % list.length]);
+    return {
+      // Twice over, so the loop can scroll exactly half its height and repeat seamlessly.
+      items: [...strip, ...strip],
+      seconds: count * (0.09 + seed.speed * 0.04),
+      startAt: -seed.phase * count * 0.1,
+    };
+  }, [list, seed]);
 
   return (
-    <span key={tick} className="match-cut text-5xl sm:text-6xl select-none opacity-70">
-      {emoji}
-    </span>
+    <div className="relative w-full h-full overflow-hidden">
+      <div
+        className="reel-strip flex flex-col"
+        style={{ animationDuration: `${reel.seconds}s`, animationDelay: `${reel.startAt}s` }}
+      >
+        {reel.items.map((id, i) => (
+          <div key={i} className="w-full aspect-square shrink-0">
+            <Avatar id={id} className="w-full h-full rounded-none" />
+          </div>
+        ))}
+      </div>
+      {/* Shading at the top and bottom of the window, like a real reel */}
+      <div className="absolute inset-0 pointer-events-none reel-shade" />
+    </div>
   );
 }
 
@@ -68,13 +84,13 @@ export default function MatchmakingScreen({
           <div key={idx} className="flex flex-col items-center gap-3 w-28 sm:w-32">
             <div
               key={p ? `filled-${p.id}` : 'empty'}
-              className={`w-24 h-24 sm:w-28 sm:h-28 rounded-full border-2 flex items-center justify-center ${
+              className={`w-24 h-24 sm:w-28 sm:h-28 rounded-full border-2 overflow-hidden flex items-center justify-center ${
                 p
                   ? 'match-lock border-ink bg-grape-soft'
                   : 'border-dashed border-ink/30 bg-white/70'
               }`}
             >
-              {p ? <span className="text-5xl sm:text-6xl">{p.avatar}</span> : <FlashingAvatar />}
+              {p ? <Avatar id={p.avatar} /> : <SlotReel />}
             </div>
             <span
               className={`font-display font-bold text-sm sm:text-base max-w-full truncate px-3 py-1 rounded-xl border-2 ${

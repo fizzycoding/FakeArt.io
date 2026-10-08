@@ -1,5 +1,6 @@
 import { Pencil } from 'lucide-react';
 import { Player } from '../types/game';
+import Avatar from './Avatar';
 
 interface PlayerCardProps {
   player: Player;
@@ -14,8 +15,8 @@ export default function PlayerCard({ player, isCurrentDrawer, isSelf, hasLeft = 
       isCurrentDrawer ? 'pulse-active !bg-grape-soft' : ''
     } ${isSelf && !isCurrentDrawer ? '!bg-bubble-soft/70' : ''} ${hasLeft ? 'opacity-50 grayscale' : ''}`}>
       <div className="flex items-center gap-3 min-w-0">
-        <div className="w-11 h-11 shrink-0 rounded-full bg-white border-2 border-ink flex items-center justify-center text-2xl">
-          {player.avatar || '🎨'}
+        <div className="w-11 h-11 shrink-0 rounded-full bg-white border-2 border-ink overflow-hidden">
+          <Avatar id={player.avatar} />
         </div>
 
         <div className="min-w-0">

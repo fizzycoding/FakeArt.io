@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -22,7 +23,16 @@ type Player struct {
 	mu        sync.Mutex
 	roomCode  string
 	closeOnce sync.Once
+
+	// Abuse limits: every incoming message, and chat messages specifically.
+	msgLimit  *bucket
+	chatLimit *bucket
 }
+
+// Avatars are the images pfp1.webp, pfp2.webp, ... referred to by id ("pfp1").
+const defaultAvatar = "pfp1"
+
+var avatarID = regexp.MustCompile(`^pfp[0-9]{1,3}$`)
 
 type PlayerSummary struct {
 	ID     string `json:"id"`
@@ -37,6 +47,9 @@ func newPlayer(conn *websocket.Conn) *Player {
 		Conn: conn,
 		Send: make(chan []byte, 256),
 		Done: make(chan struct{}),
+
+		msgLimit:  newBucket(msgsPerSecond, msgBurst),
+		chatLimit: newBucket(1.5, 3),
 	}
 }
 
@@ -78,13 +91,12 @@ func (p *Player) SendMsg(msgType string, payload interface{}) {
 }
 
 func (p *Player) SetProfile(name, avatar string) {
-	name = truncateRunes(strings.TrimSpace(name), 15)
-	if name == "" {
+	name = truncateRunes(strings.TrimSpace(cleanText(name)), 15)
+	if name == "" || containsProfanity(name) {
 		name = "Artist_" + p.ID[:4]
 	}
-	avatar = truncateRunes(strings.TrimSpace(avatar), 8)
-	if avatar == "" {
-		avatar = "🎨"
+	if !avatarID.MatchString(avatar) {
+		avatar = defaultAvatar
 	}
 	p.Name, p.Avatar = name, avatar
 }

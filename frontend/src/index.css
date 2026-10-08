@@ -35,7 +35,7 @@
   body {
     @apply font-sans text-ink min-h-screen overflow-hidden antialiased;
     background-color: var(--color-paper);
-    background-image: url('/bg-fakeart.png');
+    background-image: url('/bg-fakeart.webp');
     background-size: cover;
     background-position: center;
     background-attachment: fixed;
@@ -213,6 +213,21 @@
   to { transform: rotate(360deg); }
 }
 
+/* Slot-machine reel: scrolls half its (doubled) height, then repeats seamlessly */
+@keyframes reelSpin {
+  from { transform: translateY(0); }
+  to { transform: translateY(-50%); }
+}
+
+.reel-strip {
+  animation: reelSpin 1s linear infinite;
+  will-change: transform;
+}
+
+.reel-shade {
+  background: linear-gradient(to bottom, rgba(18, 16, 31, 0.28), transparent 28%, transparent 72%, rgba(18, 16, 31, 0.28));
+}
+
 /* Hard, quick cut for flashing avatars and countdown ticks */
 @keyframes matchCut {
   0% { transform: scale(1.35) rotate(-8deg); opacity: 0.3; }
@@ -235,7 +250,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .match-bg::before, .match-cut, .match-lock { animation: none; }
+  .match-bg::before, .match-cut, .match-lock, .reel-strip { animation: none; }
 }
 
 /* ---------- Game screen ---------- */

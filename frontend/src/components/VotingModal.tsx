@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Clock, Send, UserCheck } from 'lucide-react';
 import { ChatMessage, Player } from '../types/game';
+import Avatar from './Avatar';
 
 interface VotingModalProps {
   players: Player[];
@@ -13,12 +14,13 @@ interface VotingModalProps {
   onVote: (targetPlayerId: string) => void;
   chatMessages: ChatMessage[];
   onSendMessage: (text: string) => void;
+  chatDisabled: boolean;
 }
 
 const fmt = (secs: number) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
 
 export default function VotingModal({
-  players, myPlayerId, leftIds, timeLeft, hasVoted, votedIds, votedTargetId, onVote, chatMessages, onSendMessage,
+  players, myPlayerId, leftIds, timeLeft, hasVoted, votedIds, votedTargetId, onVote, chatMessages, onSendMessage, chatDisabled,
 }: VotingModalProps) {
   const [draft, setDraft] = useState('');
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -61,8 +63,8 @@ export default function VotingModal({
                   className={`card-soft !border-ink/30 p-3 flex items-center justify-between gap-2 ${left ? 'opacity-50 grayscale' : ''}`}
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="w-10 h-10 shrink-0 rounded-full bg-white border-2 border-ink flex items-center justify-center text-xl">
-                      {p.avatar || '🎨'}
+                    <span className="w-10 h-10 shrink-0 rounded-full bg-white border-2 border-ink overflow-hidden">
+                      <Avatar id={p.avatar} />
                     </span>
                     <div className="min-w-0 leading-tight">
                       <div className="font-bold text-sm truncate">
@@ -99,47 +101,57 @@ export default function VotingModal({
             )}
           </div>
 
-          {/* Main: chat */}
-          <div className="card-soft !border-ink/30 flex flex-col min-h-0 overflow-hidden">
-            <div className="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col gap-2">
-              {chatMessages.length === 0 && (
-                <p className="m-auto text-sm font-semibold text-ink-soft">
-                  Say something! Who drew something odd?
-                </p>
-              )}
-              {chatMessages.map((m, i) => {
-                const mine = m.senderId === myPlayerId;
-                return (
-                  <div key={i} className={`max-w-[80%] ${mine ? 'self-end text-right' : 'self-start'}`}>
-                    <div className="text-[11px] font-bold text-ink-soft">
-                      {mine ? 'You' : m.senderName} · {m.timestamp}
-                    </div>
-                    <div
-                      className={`inline-block px-3 py-1.5 rounded-2xl border-2 border-ink text-sm font-semibold break-words ${
-                        mine ? 'bg-grape text-white' : 'bg-white'
-                      }`}
-                    >
-                      {m.message}
-                    </div>
-                  </div>
-                );
-              })}
-              <div ref={endRef} />
+          {chatDisabled ? (
+            <div className="card-soft !border-ink/30 flex items-center justify-center text-center px-8">
+              <p className="text-sm font-semibold text-ink-soft">
+                Chat is turned off. Look back at the drawings and trust your eyes, then vote!
+              </p>
             </div>
+          ) : (
+            <>
+              {/* Main: chat */}
+              <div className="card-soft !border-ink/30 flex flex-col min-h-0 overflow-hidden">
+                <div className="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col gap-2">
+                  {chatMessages.length === 0 && (
+                    <p className="m-auto text-sm font-semibold text-ink-soft">
+                      Say something! Who drew something odd?
+                    </p>
+                  )}
+                  {chatMessages.map((m, i) => {
+                    const mine = m.senderId === myPlayerId;
+                    return (
+                      <div key={i} className={`max-w-[80%] ${mine ? 'self-end text-right' : 'self-start'}`}>
+                        <div className="text-[11px] font-bold text-ink-soft">
+                          {mine ? 'You' : m.senderName} · {m.timestamp}
+                        </div>
+                        <div
+                          className={`inline-block px-3 py-1.5 rounded-2xl border-2 border-ink text-sm font-semibold break-words ${
+                            mine ? 'bg-grape text-white' : 'bg-white'
+                          }`}
+                        >
+                          {m.message}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div ref={endRef} />
+                </div>
 
-            <form onSubmit={submit} className="p-3 border-t-2 border-ink/15 flex gap-2">
-              <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                maxLength={200}
-                placeholder="Type a message…"
-                className="input !py-2"
-              />
-              <button type="submit" className="btn btn-primary btn-sm shrink-0" aria-label="Send">
-                <Send size={16} />
-              </button>
-            </form>
-          </div>
+                <form onSubmit={submit} className="p-3 border-t-2 border-ink/15 flex gap-2">
+                  <input
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    maxLength={200}
+                    placeholder="Type a message…"
+                    className="input !py-2"
+                  />
+                  <button type="submit" className="btn btn-primary btn-sm shrink-0" aria-label="Send">
+                    <Send size={16} />
+                  </button>
+                </form>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

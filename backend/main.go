@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -16,10 +21,60 @@ const (
 	pongWait   = 60 * time.Second
 	pingPeriod = 25 * time.Second
 	maxMsgSize = 8 * 1024
+
+	// Per-connection message budget. Drawing sends one message per pointer move
+	// (up to ~120/s), so this is generous for real play but stops floods.
+	msgsPerSecond = 240
+	msgBurst      = 480
+	// A connection that keeps blowing through its budget is dropped.
+	maxRateStrikes = 300
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+var upgrader = websocket.Upgrader{CheckOrigin: checkOrigin}
+
+// extraOrigins are additional allowed origins from ALLOWED_ORIGINS
+// (comma-separated hosts or full origins; "*" allows everything).
+var extraOrigins = parseOrigins(os.Getenv("ALLOWED_ORIGINS"))
+
+func parseOrigins(csv string) []string {
+	var out []string
+	for _, o := range strings.Split(csv, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+// checkOrigin accepts the game's own host, local development, CrazyGames and
+// anything listed in ALLOWED_ORIGINS, so other websites can't open sockets
+// to the game server on a visitor's behalf.
+func checkOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true // not a browser
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+
+	switch {
+	case host == "localhost" || host == "127.0.0.1" || host == "::1":
+		return true
+	case strings.EqualFold(u.Host, r.Host):
+		return true
+	case host == "crazygames.com" || strings.HasSuffix(host, ".crazygames.com"):
+		return true
+	}
+	for _, allowed := range extraOrigins {
+		if allowed == "*" || strings.EqualFold(allowed, origin) || strings.EqualFold(allowed, host) {
+			return true
+		}
+	}
+	log.Printf("rejected websocket from origin %q", origin)
+	return false
 }
 
 func httpHandler() http.Handler {
@@ -32,8 +87,30 @@ func httpHandler() http.Handler {
 }
 
 func main() {
-	fmt.Println("Server running on http://localhost:8080")
-	if err := http.ListenAndServe(":8080", httpHandler()); err != nil {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	srv := &http.Server{
+		Addr:              ":" + port,
+		Handler:           httpHandler(),
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	// Stop accepting new connections cleanly on Ctrl+C or a platform shutdown.
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-stop
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		srv.Shutdown(ctx)
+	}()
+
+	fmt.Printf("Server running on http://localhost:%s\n", port)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("Server error: %v", err)
 	}
 }
@@ -64,12 +141,20 @@ func readPump(p *Player) {
 		return p.Conn.SetReadDeadline(time.Now().Add(pongWait))
 	})
 
+	strikes := 0
 	for {
 		_, data, err := p.Conn.ReadMessage()
 		if err != nil {
 			return
 		}
 		p.Conn.SetReadDeadline(time.Now().Add(pongWait))
+
+		if !p.msgLimit.allow() {
+			if strikes++; strikes > maxRateStrikes {
+				return
+			}
+			continue
+		}
 
 		var msg WSMessage
 		if json.Unmarshal(data, &msg) == nil {

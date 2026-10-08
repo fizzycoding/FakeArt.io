@@ -13,7 +13,10 @@ const (
 	turnSeconds    = 12 // time limit for each player's turn
 	votingSeconds  = 120
 	strokesPerTurn = 2
-	totalRounds    = 5 // rounds (draw + vote) in one game
+
+	// A generous ceiling on points per turn (a long stroke is a few hundred).
+	maxPointsPerTurn = 3000
+	totalRounds      = 5 // rounds (draw + vote) in one game
 
 	pointsSpotFakeArtist     = 100 // an artist who votes for the Fake Artist
 	pointsFakeArtistSurvives = 150 // the Fake Artist when the group votes someone else
@@ -37,6 +40,7 @@ type Room struct {
 	ActiveDrawerID string
 	StrokesStarted int  // strokes begun in the current turn
 	StrokeOpen     bool // the drawer's pen is currently down
+	TurnPoints     int  // points drawn this turn, capped so a client can't flood the room
 	PhaseEnds      time.Time
 	Vacated        []string // turn-order seats left empty by departed players
 	GameOver       bool
@@ -289,6 +293,7 @@ func (r *Room) startDrawingTurn() {
 	r.ActiveDrawerID = drawerID
 	r.StrokesStarted = 0
 	r.StrokeOpen = false
+	r.TurnPoints = 0
 
 	present := false
 	for _, p := range r.Players {
@@ -368,6 +373,11 @@ func (r *Room) HandleStroke(playerID string, s StrokeData) {
 		r.Mutex.Unlock()
 		return
 	}
+	if r.TurnPoints >= maxPointsPerTurn {
+		r.Mutex.Unlock()
+		return
+	}
+	r.TurnPoints++
 	r.Strokes = append(r.Strokes, s)
 	r.Mutex.Unlock()
 
@@ -530,13 +540,17 @@ func (r *Room) HandleChat(sender *Player, text string) {
 		return
 	}
 
-	text = strings.TrimSpace(text)
+	if !sender.chatLimit.allow() {
+		return
+	}
+	text = strings.TrimSpace(cleanText(text))
 	if utf8.RuneCountInString(text) > 200 {
 		text = string([]rune(text)[:200])
 	}
 	if text == "" {
 		return
 	}
+	text = censor(text)
 
 	r.Broadcast("CHAT_MESSAGE", map[string]interface{}{
 		"senderId":   sender.ID,

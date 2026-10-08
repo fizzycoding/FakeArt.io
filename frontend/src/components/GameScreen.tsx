@@ -28,6 +28,7 @@ interface GameScreenProps {
   onVote: (targetPlayerId: string) => void;
   chatMessages: ChatMessage[];
   onSendMessage: (text: string) => void;
+  chatDisabled: boolean;
   remoteStrokes: StrokeData[];
   clearSignal: number;
   onSendStroke: (stroke: StrokeData) => void;
@@ -158,6 +159,7 @@ export default function GameScreen(props: GameScreenProps) {
             onVote={props.onVote}
             chatMessages={props.chatMessages}
             onSendMessage={props.onSendMessage}
+            chatDisabled={props.chatDisabled}
           />
         )}
       </div>

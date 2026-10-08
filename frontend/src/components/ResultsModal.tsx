@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ShieldAlert, Trophy } from 'lucide-react';
 import { Player, RoundResults } from '../types/game';
+import Avatar from './Avatar';
 
 interface ResultsModalProps {
   results: RoundResults;
@@ -44,8 +45,15 @@ export default function ResultsModal({ results, players, roundNumber, maxRounds,
             <div className="text-xs font-bold text-ink-soft uppercase tracking-widest">
               {winners.length > 1 ? 'Winners' : 'Winner'}
             </div>
-            <h2 className="font-display text-3xl font-bold text-grape-dark">
-              {winners.map((w) => `${w.player.avatar} ${w.player.name}`).join(' & ') || 'Nobody'}
+            <h2 className="font-display text-3xl font-bold text-grape-dark flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+              {winners.length === 0 && 'Nobody'}
+              {winners.map((w, i) => (
+                <span key={w.player.id} className="inline-flex items-center gap-2">
+                  {i > 0 && <span className="text-ink-soft">&amp;</span>}
+                  <Avatar id={w.player.avatar} className="w-10 h-10 border-2 border-ink" />
+                  {w.player.name}
+                </span>
+              ))}
             </h2>
             <div className="text-sm font-semibold text-ink-soft mt-1">
               with {topScore} pts after {maxRounds} rounds
@@ -57,7 +65,7 @@ export default function ResultsModal({ results, players, roundNumber, maxRounds,
               <div key={s.player.id} className="card-soft p-2.5 flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">
                   <span className="font-display font-bold text-ink-soft w-5">{i + 1}</span>
-                  <span className="text-xl">{s.player.avatar}</span>
+                  <Avatar id={s.player.avatar} className="w-8 h-8 border-2 border-ink" />
                   <span className="font-bold">{s.player.name}</span>
                 </div>
                 <span className="font-display font-bold">{s.total} pts</span>
@@ -90,7 +98,7 @@ export default function ResultsModal({ results, players, roundNumber, maxRounds,
         </div>
 
         <div className="bg-bubble-soft border-2 border-ink rounded-2xl p-3 w-full flex items-center justify-center gap-3">
-          <span className="text-3xl">{impostorPlayer?.avatar || '👺'}</span>
+          <Avatar id={impostorPlayer?.avatar} className="w-12 h-12 border-2 border-ink" />
           <span className="font-display font-semibold text-lg text-cherry">
             {impostorPlayer?.name || 'Impostor'} was the Impostor!
           </span>
@@ -107,7 +115,7 @@ export default function ResultsModal({ results, players, roundNumber, maxRounds,
             return (
               <div key={p.id} className="card-soft p-2.5 flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-xl">{p.avatar}</span>
+                  <Avatar id={p.avatar} className="w-8 h-8 border-2 border-ink shrink-0" />
                   <div className="min-w-0 text-left leading-tight">
                     <div className="font-bold truncate">{p.name}</div>
                     <div className={`text-xs font-bold ${isImpostor ? 'text-cherry' : 'text-grape-dark'}`}>

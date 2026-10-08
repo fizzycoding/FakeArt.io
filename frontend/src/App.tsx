@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Play, Users, Plus, Link2, LogIn, Copy, ArrowLeft, CircleHelp
+  Play, Users, Plus, Link2, LogIn, Copy, ArrowLeft, CircleHelp, Video, Loader2
 } from 'lucide-react';
 import GameScreen from './components/GameScreen';
 import Stage from './components/Stage';
@@ -9,12 +9,16 @@ import ProfileModal from './components/ProfileModal';
 import HowToPlayModal from './components/HowToPlayModal';
 import { startBackgroundMusic } from './utils/music';
 import { initSfx, sfx } from './utils/sfx';
+import Avatar from './components/Avatar';
+import { DEFAULT_AVATAR, loadAvatarList, normalizeAvatar } from './utils/avatars';
 import MatchmakingScreen from './components/MatchmakingScreen';
 import { 
   Player, StrokeData, ChatMessage, RoundResults, PlayerProfile, GamePhase 
 } from './types/game';
-import { 
-  triggerGameplayStart, triggerGameplayStop, triggerHappyTime 
+import {
+  initCrazyGamesSDK, isSdkUsable, loadingStart, loadingStop, triggerGameplayStart, triggerGameplayStop,
+  triggerHappyTime, requestRewardedAd, hasAdblock, isChatDisabled, getCrazyGamesUsername, shareRoom,
+  leaveSharedRoom, getInviteLink, getInviteRoomCode, onInviteJoin, AdFailure,
 } from './utils/crazygames';
 
 const getWebSocketUrl = (): string => {
@@ -32,11 +36,19 @@ const WS_URL = getWebSocketUrl();
 export default function App() {
   const [screen, setScreen] = useState<'MENU' | 'LOBBY' | 'GAME'>('MENU');
   const [profile, setProfile] = useState<PlayerProfile>(() => {
-    const saved = localStorage.getItem('fakeart_profile');
-    if (saved) return JSON.parse(saved);
+    // Browsers can block storage inside an embedded game, so never let it throw.
+    try {
+      const saved = localStorage.getItem('fakeart_profile');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return { ...parsed, avatar: normalizeAvatar(parsed.avatar) };
+      }
+    } catch {
+      // fall through to a fresh profile
+    }
     return {
       name: 'Artist_' + Math.floor(1000 + Math.random() * 9000),
-      avatar: '🎨',
+      avatar: DEFAULT_AVATAR,
       matchesPlayed: 0,
       matchesWon: 0
     };
@@ -44,6 +56,11 @@ export default function App() {
 
   const [showProfile, setShowProfile] = useState(false);
   const [showHowTo, setShowHowTo] = useState(false);
+  const [adGated, setAdGated] = useState(false); // Create Room costs a rewarded ad (CrazyGames SDK active)
+  const [adBusy, setAdBusy] = useState(false); // an ad is loading or playing: block the UI
+  const [adblocked, setAdblocked] = useState(false);
+  const [adNotice, setAdNotice] = useState('');
+  const [chatOff, setChatOff] = useState(false);
   const [roomCode, setRoomCode] = useState('');
   const [joinInputCode, setJoinInputCode] = useState('');
   const [showJoin, setShowJoin] = useState(false);
@@ -74,6 +91,8 @@ export default function App() {
   const [votedIds, setVotedIds] = useState<string[]>([]);
   // The socket handlers are created once, so they read the player id from a ref.
   const myIdRef = useRef('');
+  const roomCodeRef = useRef('');
+  const profileRef = useRef<PlayerProfile | null>(null);
   const [roundResults, setRoundResults] = useState<RoundResults | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -83,8 +102,53 @@ export default function App() {
     initSfx();
   }, []);
 
+  // CrazyGames SDK start-up: report loading, learn what the platform allows,
+  // use the player's CrazyGames name, and honour invite links.
   useEffect(() => {
-    localStorage.setItem('fakeart_profile', JSON.stringify(profile));
+    let alive = true;
+    (async () => {
+      loadingStart();
+      await initCrazyGamesSDK();
+
+      const cgName = await getCrazyGamesUsername();
+      if (alive && cgName) {
+        // Show the CrazyGames username so friends recognise each other, unless the player chose their own.
+        setProfile((prev) => (/^Artist_\d+$/.test(prev.name) ? { ...prev, name: cgName.slice(0, 15) } : prev));
+      }
+      if (alive) {
+        setAdGated(isSdkUsable());
+        setChatOff(isChatDisabled());
+      }
+
+      await loadAvatarList();
+      loadingStop();
+
+      onInviteJoin((code) => {
+        handleReturnToMenu();
+        joinRoomByCode(code);
+      });
+      const invited = getInviteRoomCode();
+      if (alive && invited) joinRoomByCode(invited);
+
+      if (alive) setAdblocked(await hasAdblock());
+    })();
+    return () => {
+      alive = false;
+    };
+    // Runs once; the handlers it calls only use refs and state setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('fakeart_profile', JSON.stringify(profile));
+    } catch {
+      // storage unavailable: the profile just won't persist
+    }
   }, [profile]);
 
   useEffect(() => {
@@ -162,6 +226,8 @@ export default function App() {
 
       case 'ROOM_CREATED':
       case 'JOIN_SUCCESS':
+        roomCodeRef.current = payload.code;
+        shareRoom(payload.code, (payload.players || []).length < 4);
         setRoomCode(payload.code);
         setPlayers(payload.players || []);
         setHostId(payload.hostId || '');
@@ -170,6 +236,7 @@ export default function App() {
         break;
 
       case 'LOBBY_UPDATE':
+        if (roomCodeRef.current) shareRoom(roomCodeRef.current, (payload.players || []).length < 4);
         setPlayers(payload.players || []);
         setHostId(payload.hostId || '');
         break;
@@ -199,6 +266,7 @@ export default function App() {
         break;
 
       case 'START_ROUND':
+        if (roomCodeRef.current) shareRoom(roomCodeRef.current, false); // started: friends can't join mid-game
         sfx.roundStart();
         setMatchFound(false);
         setLeftIds([]);
@@ -263,7 +331,6 @@ export default function App() {
         setPhaseTimeLeft(payload.durationSeconds);
         if (payload.phase === 'VOTING') {
           sfx.votingStart();
-          triggerHappyTime();
         }
         break;
 
@@ -287,6 +354,7 @@ export default function App() {
         break;
 
       case 'ROUND_RESULTS':
+        triggerGameplayStop(); // the results screen is a break in play
         if (payload.isGameOver) sfx.victory();
         else sfx.roundEnd();
         setRoundResults(payload);
@@ -294,6 +362,7 @@ export default function App() {
         if (payload.isGameOver && payload.totalScores && payload.totalScores[myIdRef.current] !== undefined) {
           const best = Math.max(...(Object.values(payload.totalScores) as number[]));
           const won = payload.totalScores[myIdRef.current] === best;
+          if (won) triggerHappyTime(); // a special moment: winning the whole game
           setProfile((prev) => ({
             ...prev,
             matchesPlayed: prev.matchesPlayed + 1,
@@ -303,7 +372,8 @@ export default function App() {
         break;
 
       case 'ERROR':
-        alert(payload.message || 'Error occurred');
+        // Shown on the page; browser alerts are blocked inside CrazyGames' frame.
+        setConnError(payload.message || 'Something went wrong. Please try again.');
         break;
 
       default:
@@ -324,11 +394,53 @@ export default function App() {
     });
   };
 
-  const handleCreateRoom = () => {
+  const adFailureMessage = (reason: AdFailure): string => {
+    switch (reason) {
+      case 'adblock':
+        return 'Create Room needs a short ad, and your adblocker is blocking it. Turn it off to create rooms.';
+      case 'unfilled':
+        return 'No ad is available right now. Please try again in a moment.';
+      case 'cooldown':
+        return 'Ads are cooling down. Please try again in a minute.';
+      default:
+        return "The ad couldn't play. Please try again.";
+    }
+  };
+
+  // Creating a private room is the rewarded-ad perk: watch one ad, get a room.
+  // If the ad doesn't play, no room; Play and Join Room still work for everyone.
+  const handleCreateRoom = async () => {
+    if (adBusy) return;
+    setAdNotice('');
+    setConnError('');
+
+    if (adGated) {
+      setAdBusy(true);
+      const result = await requestRewardedAd();
+      setAdBusy(false);
+      if (result.granted === false) {
+        setAdNotice(adFailureMessage(result.reason));
+        if (result.reason === 'adblock') setAdblocked(true);
+        return;
+      }
+      if (result.watched) sfx.matchFound(); // a clear "unlocked" cue
+    }
+
     connectWebSocket(() => {
       sendWSMessage('CREATE_ROOM', {
         name: profile.name,
         avatar: profile.avatar
+      });
+    });
+  };
+
+  const joinRoomByCode = (code: string) => {
+    const me = profileRef.current;
+    connectWebSocket(() => {
+      sendWSMessage('JOIN_ROOM', {
+        name: me?.name,
+        avatar: me?.avatar,
+        code: code.trim().toUpperCase()
       });
     });
   };
@@ -353,8 +465,15 @@ export default function App() {
     navigator.clipboard?.writeText(roomCode).catch(() => {});
   };
 
+  const handleCopyInvite = () => {
+    const link = getInviteLink(roomCode);
+    navigator.clipboard?.writeText(link ?? roomCode).catch(() => {});
+  };
+
   const handleLeaveLobby = () => {
     sendWSMessage('LEAVE_ROOM');
+    roomCodeRef.current = '';
+    leaveSharedRoom();
     setMatchFound(false);
     setScreen('MENU');
   };
@@ -380,6 +499,8 @@ export default function App() {
 
   const handleReturnToMenu = () => {
     triggerGameplayStop();
+    roomCodeRef.current = '';
+    leaveSharedRoom();
     const ws = wsRef.current;
     wsRef.current = null;
     ws?.close();
@@ -416,7 +537,7 @@ export default function App() {
             aria-label="Back to menu"
           >
             <ArrowLeft size={16} />
-            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="FakeArt.io" draggable={false} className="h-7 w-auto" />
+            <img src={`${import.meta.env.BASE_URL}logo.webp`} alt="FakeArt.io" draggable={false} className="h-7 w-auto" />
           </button>
         )}
 
@@ -424,8 +545,8 @@ export default function App() {
           onClick={() => setShowProfile(true)}
           className="card !rounded-3xl !shadow-[0_5px_0_0_var(--color-ink)] flex items-center gap-4 pl-3 pr-6 py-3 cursor-pointer hover:bg-grape-soft/60 transition-colors"
         >
-          <span className="w-16 h-16 rounded-full bg-grape-soft border-[3px] border-grape flex items-center justify-center text-4xl">
-            {profile.avatar}
+          <span className="w-16 h-16 rounded-full bg-grape-soft border-[3px] border-grape overflow-hidden">
+            <Avatar id={profile.avatar} />
           </span>
           <span className="text-left leading-tight">
             <span className="block font-bold text-2xl">{profile.name}</span>
@@ -441,7 +562,7 @@ export default function App() {
             {/* Logo */}
             <h1>
               <img
-                src={`${import.meta.env.BASE_URL}logo.png`}
+                src={`${import.meta.env.BASE_URL}logo.webp`}
                 alt="FakeArt.io"
                 draggable={false}
                 className="w-[400px] max-w-none h-auto select-none"
@@ -454,9 +575,22 @@ export default function App() {
                 Play
               </button>
 
-              <button onClick={handleCreateRoom} className="btn btn-secondary w-full py-3.5 text-lg">
+              <button
+                onClick={handleCreateRoom}
+                disabled={adBusy || (adGated && adblocked)}
+                aria-label={adGated ? 'Create Room (watch a short ad)' : 'Create Room'}
+                className="btn btn-secondary w-full py-3.5 text-lg"
+              >
                 <Plus size={22} strokeWidth={3} />
                 Create Room
+                {adGated && (
+                  <span
+                    title="Watch a short ad to create a room"
+                    className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-grape text-white border-2 border-ink flex items-center justify-center"
+                  >
+                    <Video size={16} strokeWidth={2.5} />
+                  </span>
+                )}
               </button>
 
               {showJoin ? (
@@ -487,8 +621,12 @@ export default function App() {
               </button>
             </div>
 
-            {connError && (
-              <p className="text-cherry text-sm font-bold text-center">{connError}</p>
+            {(connError || adNotice || (adGated && adblocked)) && (
+              <p className="text-cherry text-sm font-bold text-center max-w-sm">
+                {connError ||
+                  adNotice ||
+                  'Create Room needs a short ad, and your adblocker is blocking it. Play and Join Room still work.'}
+              </p>
             )}
           </div>
         )}
@@ -532,7 +670,7 @@ export default function App() {
                         : 'border-dashed border-ink/30 bg-white/60'
                     }`}
                   >
-                    <span className="text-3xl">{p ? p.avatar : '?'}</span>
+                    {p ? <Avatar id={p.avatar} className="w-10 h-10 border-2 border-ink" /> : <span className="text-3xl">?</span>}
                     <span className="text-[11px] font-bold text-ink-soft truncate max-w-[60px]">
                       {p ? p.name : 'Waiting'}
                     </span>
@@ -544,10 +682,18 @@ export default function App() {
             <div className="flex flex-col gap-3 w-full">
               {isCustomRoom && (
                 <>
-                  <button onClick={handleCopyCode} className="btn btn-secondary w-full py-3 text-base">
-                    <Copy size={18} />
-                    Copy Room Code
-                  </button>
+                  <div className="flex gap-3">
+                    <button onClick={handleCopyCode} className="btn btn-secondary flex-1 py-3 text-base">
+                      <Copy size={18} />
+                      Copy Code
+                    </button>
+                    {isSdkUsable() && (
+                      <button onClick={handleCopyInvite} className="btn btn-secondary flex-1 py-3 text-base">
+                        <Link2 size={18} />
+                        Copy Invite Link
+                      </button>
+                    )}
+                  </div>
                   {myPlayerId === hostId ? (
                     <button
                       onClick={handleStartGame}
@@ -588,6 +734,7 @@ export default function App() {
             votedTargetId={votedTargetId}
             onVote={handleCastVote}
             chatMessages={chatMessages}
+            chatDisabled={chatOff}
             onSendMessage={handleSendMessage}
             remoteStrokes={remoteStrokes}
             clearSignal={clearSignal}
@@ -617,6 +764,13 @@ export default function App() {
           onSaveProfile={(updated) => setProfile(updated)}
           onClose={() => setShowProfile(false)}
         />
+      )}
+
+      {adBusy && (
+        <div className="absolute inset-0 z-[90] flex flex-col items-center justify-center gap-3 bg-ink/40 backdrop-blur-sm">
+          <Loader2 size={44} className="animate-spin text-white" />
+          <p className="font-display text-xl font-bold text-white">Loading ad…</p>
+        </div>
       )}
     </div>
     </Stage>

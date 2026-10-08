@@ -1,3 +1,5 @@
+import { isMuted, onMuteChange } from './audio';
+
 const VOLUME = 0.12;
 
 let audio: HTMLAudioElement | null = null;
@@ -13,6 +15,11 @@ export const startBackgroundMusic = (): void => {
   audio = new Audio(`${import.meta.env.BASE_URL}music.mp3`);
   audio.loop = true;
   audio.volume = VOLUME;
+  // Silenced while CrazyGames asks for it or a video ad is playing.
+  audio.muted = isMuted();
+  onMuteChange(() => {
+    if (audio) audio.muted = isMuted();
+  });
 
   const tryPlay = () => {
     audio?.play().then(removeListeners).catch(() => {});

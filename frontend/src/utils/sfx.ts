@@ -1,6 +1,8 @@
 // Sound effects, synthesised with the Web Audio API so no audio files are
 // needed. Everything is short and quiet so it sits under the background music.
 
+import { isMuted } from './audio';
+
 let ctx: AudioContext | null = null;
 
 const getCtx = (): AudioContext | null => {
@@ -29,6 +31,7 @@ interface Tone {
 }
 
 const play = (tones: Tone[]): void => {
+  if (isMuted()) return;
   const c = getCtx();
   if (!c || c.state !== 'running') return;
 

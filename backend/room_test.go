@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -406,5 +408,116 @@ func TestVoteCannotBeChanged(t *testing.T) {
 	defer r.Mutex.RUnlock()
 	if r.Votes["a"] != "b" || len(r.Votes) != 1 {
 		t.Fatalf("first vote should stand, got %v", r.Votes)
+	}
+}
+
+func TestAvatarIsValidatedToAnImageId(t *testing.T) {
+	cases := map[string]string{
+		"pfp1":                  "pfp1",
+		"pfp12":                 "pfp12",
+		"🎨":                     "pfp1",
+		"":                      "pfp1",
+		"../../etc/passwd":      "pfp1",
+		"<img src=x onerror=1>": "pfp1",
+		"pfp1234":               "pfp1",
+	}
+	for in, want := range cases {
+		p := testPlayer("avatar-test")
+		p.SetProfile("x", in)
+		if p.Avatar != want {
+			t.Errorf("avatar %q became %q, want %q", in, p.Avatar, want)
+		}
+	}
+}
+
+func TestProfanityFilter(t *testing.T) {
+	blocked := []string{"fuck", "FUCK!", "sh1t", "f*ck", "fuuuuck", "you are a bitch", "$hit", "(shit)", "well,fuck"}
+	for _, s := range blocked {
+		if !containsProfanity(s) {
+			t.Errorf("%q should be flagged", s)
+		}
+	}
+	clean := []string{"hello there", "class", "Assassin", "Scunthorpe", "I think it's the cat", "Artist_1234", "pass the ball", "Dickens"}
+	for _, s := range clean {
+		if containsProfanity(s) {
+			t.Errorf("%q should be fine, censored to %q", s, censor(s))
+		}
+	}
+	if got := censor("what the fuck is that"); got != "what the **** is that" {
+		t.Errorf("censor() = %q", got)
+	}
+}
+
+func TestNamesAreCleanedAndModerated(t *testing.T) {
+	p := testPlayer("name-test-1234")
+	p.SetProfile("Bad\u200bName\n", "pfp1")
+	if p.Name != "BadName" {
+		t.Errorf("invisible characters should be stripped, got %q", p.Name)
+	}
+	p.SetProfile("fuck", "pfp1")
+	if p.Name != "Artist_name" {
+		t.Errorf("profane name should be replaced, got %q", p.Name)
+	}
+}
+
+func TestStrokePointsAreCapped(t *testing.T) {
+	r := newTestRoom()
+	r.StartGame()
+	defer r.Close()
+	d := activeDrawer(r)
+	r.HandleStroke(d, StrokeData{IsNewStroke: true})
+	for i := 0; i < maxPointsPerTurn+500; i++ {
+		r.HandleStroke(d, StrokeData{})
+	}
+	r.Mutex.RLock()
+	n := len(r.Strokes)
+	r.Mutex.RUnlock()
+	if n != maxPointsPerTurn {
+		t.Fatalf("expected %d points kept, got %d", maxPointsPerTurn, n)
+	}
+}
+
+func TestRateLimitBucket(t *testing.T) {
+	b := newBucket(10, 5)
+	allowed := 0
+	for i := 0; i < 20; i++ {
+		if b.allow() {
+			allowed++
+		}
+	}
+	if allowed != 5 {
+		t.Fatalf("burst of 5 expected, got %d", allowed)
+	}
+}
+
+func TestOriginCheck(t *testing.T) {
+	mk := func(origin, host string) *http.Request {
+		r := httptest.NewRequest("GET", "http://"+host+"/ws", nil)
+		if origin != "" {
+			r.Header.Set("Origin", origin)
+		}
+		return r
+	}
+	ok := [][2]string{
+		{"", "game.example.com"},
+		{"http://localhost:5173", "game.example.com"},
+		{"https://game.example.com", "game.example.com"},
+		{"https://www.crazygames.com", "game.example.com"},
+		{"https://abc123.game.crazygames.com", "game.example.com"},
+	}
+	for _, c := range ok {
+		if !checkOrigin(mk(c[0], c[1])) {
+			t.Errorf("origin %q should be allowed", c[0])
+		}
+	}
+	bad := [][2]string{
+		{"https://evil.example.org", "game.example.com"},
+		{"https://crazygames.com.evil.org", "game.example.com"},
+		{"https://notcrazygames.com", "game.example.com"},
+	}
+	for _, c := range bad {
+		if checkOrigin(mk(c[0], c[1])) {
+			t.Errorf("origin %q should be rejected", c[0])
+		}
 	}
 }

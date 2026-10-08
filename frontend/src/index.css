@@ -33,7 +33,7 @@
   }
 
   body {
-    @apply font-sans text-ink min-h-screen overflow-x-hidden antialiased;
+    @apply font-sans text-ink min-h-screen overflow-hidden antialiased;
     background-color: var(--color-paper);
     background-image: url('/bg-fakeart.png');
     background-size: cover;

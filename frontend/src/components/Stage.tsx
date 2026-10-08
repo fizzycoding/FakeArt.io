@@ -33,7 +33,7 @@ export default function Stage({ bgClass = '', children }: StageProps) {
   }, []);
 
   return (
-    <div className={`fixed inset-0 overflow-hidden flex items-center justify-center select-none ${bgClass}`}>
+    <div className={`fixed inset-0 overflow-clip flex items-center justify-center select-none ${bgClass}`}>
       <div
         className="relative shrink-0"
         style={{ width: STAGE_W, height: STAGE_H, transform: `scale(${scale})` }}

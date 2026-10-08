@@ -68,9 +68,9 @@ export default function MatchmakingScreen({
           <div key={idx} className="flex flex-col items-center gap-3 w-28 sm:w-32">
             <div
               key={p ? `filled-${p.id}` : 'empty'}
-              className={`w-24 h-24 sm:w-28 sm:h-28 rounded-full border-4 flex items-center justify-center ${
+              className={`w-24 h-24 sm:w-28 sm:h-28 rounded-full border-2 flex items-center justify-center ${
                 p
-                  ? 'match-lock border-ink bg-grape-soft shadow-[0_5px_0_0_var(--color-ink)]'
+                  ? 'match-lock border-ink bg-grape-soft'
                   : 'border-dashed border-ink/30 bg-white/70'
               }`}
             >

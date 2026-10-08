@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Play, Users, Plus, Link2, LogIn, Settings, Copy, ArrowLeft
+  Play, Users, Plus, Link2, LogIn, Copy, ArrowLeft, CircleHelp
 } from 'lucide-react';
 import GameScreen from './components/GameScreen';
 import Stage from './components/Stage';
 import ResultsModal from './components/ResultsModal';
 import ProfileModal from './components/ProfileModal';
+import HowToPlayModal from './components/HowToPlayModal';
 import MatchmakingScreen from './components/MatchmakingScreen';
 import { 
   Player, StrokeData, ChatMessage, RoundResults, PlayerProfile, GamePhase 
@@ -40,6 +41,7 @@ export default function App() {
   });
 
   const [showProfile, setShowProfile] = useState(false);
+  const [showHowTo, setShowHowTo] = useState(false);
   const [roomCode, setRoomCode] = useState('');
   const [joinInputCode, setJoinInputCode] = useState('');
   const [showJoin, setShowJoin] = useState(false);
@@ -359,8 +361,6 @@ export default function App() {
     setScreen('MENU');
   };
 
-  const level = 1 + Math.floor(profile.matchesPlayed / 3);
-
   const inMatchmaking = screen === 'LOBBY' && !isCustomRoom;
   const stageBg = screen === 'GAME' ? 'game-bg' : inMatchmaking ? 'match-bg' : '';
 
@@ -383,27 +383,17 @@ export default function App() {
           </button>
         )}
 
-        <div className="flex items-stretch card !rounded-2xl !shadow-[0_4px_0_0_var(--color-ink)]">
-          <button
-            onClick={() => setShowProfile(true)}
-            className="flex items-center gap-3 pl-2 pr-4 py-1.5 cursor-pointer hover:bg-grape-soft/60 rounded-l-2xl transition-colors"
-          >
-            <span className="w-10 h-10 rounded-full bg-grape-soft border-2 border-grape flex items-center justify-center text-xl">
-              {profile.avatar}
-            </span>
-            <span className="text-left leading-tight">
-              <span className="block font-bold text-sm">{profile.name}</span>
-              <span className="block text-xs font-semibold text-ink-soft">Lv. {level}</span>
-            </span>
-          </button>
-          <button
-            onClick={() => setShowProfile(true)}
-            aria-label="Settings"
-            className="px-3.5 border-l-2 border-ink/15 rounded-r-2xl cursor-pointer hover:bg-grape-soft/60 transition-colors"
-          >
-            <Settings size={20} />
-          </button>
-        </div>
+        <button
+          onClick={() => setShowProfile(true)}
+          className="card !rounded-3xl !shadow-[0_5px_0_0_var(--color-ink)] flex items-center gap-4 pl-3 pr-6 py-3 cursor-pointer hover:bg-grape-soft/60 transition-colors"
+        >
+          <span className="w-16 h-16 rounded-full bg-grape-soft border-[3px] border-grape flex items-center justify-center text-4xl">
+            {profile.avatar}
+          </span>
+          <span className="text-left leading-tight">
+            <span className="block font-bold text-2xl">{profile.name}</span>
+          </span>
+        </button>
       </header>
       )}
 
@@ -452,6 +442,11 @@ export default function App() {
                   Join Room
                 </button>
               )}
+
+              <button onClick={() => setShowHowTo(true)} className="btn btn-secondary w-full py-3.5 text-lg">
+                <CircleHelp size={22} strokeWidth={2.5} />
+                How to Play
+              </button>
             </div>
 
             {connError && (
@@ -459,7 +454,7 @@ export default function App() {
             )}
 
             <p className="text-ink-soft text-sm font-semibold text-center max-w-xs leading-relaxed">
-              One stroke each. One of you has a different word.
+              Two strokes each. One of you has a different word.
               Spot the Fake Artist!
             </p>
           </div>
@@ -578,6 +573,8 @@ export default function App() {
           onReturnHome={handleReturnToMenu}
         />
       )}
+
+      {showHowTo && <HowToPlayModal onClose={() => setShowHowTo(false)} />}
 
       {/* Profile Modal */}
       {showProfile && (

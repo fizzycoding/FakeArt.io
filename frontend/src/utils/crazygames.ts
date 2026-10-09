@@ -50,6 +50,7 @@ interface CrazyGamesSDK {
     setItem: (key: string, value: string) => void;
   };
   user: {
+    systemInfo?: { applicationType?: string };
     isUserAccountAvailable: boolean;
     getUser: () => Promise<{ username?: string } | null>;
   };
@@ -75,6 +76,19 @@ const safe = <T>(fn: (s: CrazyGamesSDK) => T): T | undefined => {
 
 /** True when the SDK loaded and is running somewhere it supports. */
 export const isSdkUsable = (): boolean => sdk !== null;
+
+/** True on the CrazyGames site, which manages fullscreen and screen orientation itself. */
+export const isOnCrazyGames = (): boolean => sdk?.environment === 'crazygames';
+
+/** True inside the CrazyGames mobile app (Android or iOS), which already opens games fullscreen. */
+export const isCrazyGamesApp = (): boolean => {
+  try {
+    const type = sdk?.user.systemInfo?.applicationType;
+    return type === 'google_play_store' || type === 'apple_store';
+  } catch {
+    return false;
+  }
+};
 
 let initPromise: Promise<void> | null = null;
 

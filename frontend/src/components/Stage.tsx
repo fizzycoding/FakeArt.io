@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { RotateCw } from 'lucide-react';
 
 // Everything in the app is laid out on one fixed-size stage that is scaled to
@@ -7,8 +7,6 @@ import { RotateCw } from 'lucide-react';
 export const STAGE_W = 1280;
 export const STAGE_H = 720;
 
-const fitScale = () => Math.min(window.innerWidth / STAGE_W, window.innerHeight / STAGE_H);
-
 interface StageProps {
   /** Full-window background class; leave empty to show the page's own background. */
   bgClass?: string;
@@ -16,29 +14,43 @@ interface StageProps {
 }
 
 export default function Stage({ bgClass = '', children }: StageProps) {
-  const [scale, setScale] = useState(fitScale);
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [scale, setScale] = useState(1);
   const [portrait, setPortrait] = useState(() => window.innerHeight > window.innerWidth);
 
-  useEffect(() => {
-    const onResize = () => {
-      setScale(fitScale());
+  // Fit the stage inside the space left after the phone's notch and rounded corners
+  // (safe areas), and follow it as browser bars appear and disappear.
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    if (!box) return;
+    const measure = () => {
+      setScale(Math.min(box.clientWidth / STAGE_W, box.clientHeight / STAGE_H));
       setPortrait(window.innerHeight > window.innerWidth);
     };
-    window.addEventListener('resize', onResize);
-    window.addEventListener('orientationchange', onResize);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    window.addEventListener('orientationchange', measure);
     return () => {
-      window.removeEventListener('resize', onResize);
-      window.removeEventListener('orientationchange', onResize);
+      observer.disconnect();
+      window.removeEventListener('orientationchange', measure);
     };
   }, []);
 
   return (
-    <div className={`fixed inset-0 overflow-clip flex items-center justify-center select-none ${bgClass}`}>
-      <div
-        className="relative shrink-0"
-        style={{ width: STAGE_W, height: STAGE_H, transform: `scale(${scale})` }}
-      >
-        {children}
+    <div
+      className={`fixed inset-0 overflow-clip select-none ${bgClass}`}
+      style={{
+        paddingTop: 'env(safe-area-inset-top)',
+        paddingRight: 'env(safe-area-inset-right)',
+        paddingBottom: 'env(safe-area-inset-bottom)',
+        paddingLeft: 'env(safe-area-inset-left)',
+      }}
+    >
+      <div ref={boxRef} className="relative w-full h-full flex items-center justify-center">
+        <div className="relative shrink-0" style={{ width: STAGE_W, height: STAGE_H, transform: `scale(${scale})` }}>
+          {children}
+        </div>
       </div>
 
       {portrait && (

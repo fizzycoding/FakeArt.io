@@ -32,8 +32,18 @@
     height: 100%;
   }
 
+  html,
+  body {
+    /* Dragging on a phone must never scroll the page or trigger pull-to-refresh. */
+    overscroll-behavior: none;
+    touch-action: manipulation;
+  }
+
   body {
     @apply font-sans text-ink min-h-screen overflow-hidden antialiased;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
     background-color: var(--color-paper);
     background-image: url('/bg-fakeart.webp');
     background-size: cover;
@@ -102,6 +112,8 @@
 }
 
 .input {
+  -webkit-user-select: text;
+  user-select: text;
   @apply w-full bg-white border-2 border-ink rounded-2xl px-4 py-3 text-ink font-semibold
     placeholder:text-ink-soft/50 focus:outline-none focus:ring-4 focus:ring-grape/30
     disabled:opacity-50;

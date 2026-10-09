@@ -8,6 +8,8 @@ import ResultsModal from './components/ResultsModal';
 import ProfileModal from './components/ProfileModal';
 import TutorialModal from './components/TutorialModal';
 import SoundToggle from './components/SoundToggle';
+import FullscreenToggle from './components/FullscreenToggle';
+import { goFullscreenOnFirstTap } from './utils/fullscreen';
 import { startBackgroundMusic } from './utils/music';
 import { initSfx, sfx } from './utils/sfx';
 import { setMuted } from './utils/audio';
@@ -21,7 +23,7 @@ import {
 import {
   initCrazyGamesSDK, isSdkUsable, loadingStart, loadingStop, triggerGameplayStart, triggerGameplayStop,
   triggerHappyTime, requestRewardedAd, hasAdblock, isChatDisabled, getCrazyGamesUsername, shareRoom,
-  leaveSharedRoom, getInviteLink, getInviteRoomCode, onInviteJoin, AdFailure, getRoomCredit, setRoomCredit,
+  isOnCrazyGames, isCrazyGamesApp, leaveSharedRoom, getInviteLink, getInviteRoomCode, onInviteJoin, AdFailure, getRoomCredit, setRoomCredit,
   isTutorialDone, markTutorialDone, isSoundMutedSaved,
 } from './utils/crazygames';
 
@@ -73,6 +75,7 @@ export default function App() {
   const [showConnecting, setShowConnecting] = useState(false); // ...and it's taking long enough to show
   const [connectingSlow, setConnectingSlow] = useState(false);
   const [chatOff, setChatOff] = useState(false);
+  const [inCrazyGamesApp, setInCrazyGamesApp] = useState(false); // the app is already fullscreen
   const [roomCode, setRoomCode] = useState('');
   const [joinInputCode, setJoinInputCode] = useState('');
   const [showJoin, setShowJoin] = useState(false);
@@ -119,6 +122,15 @@ export default function App() {
     setMuted('user', isSoundMutedSaved()); // the player's last choice, before any sound can start
     startBackgroundMusic();
     initSfx();
+    // On phones and tablets, hide the browser bars on the first tap. CrazyGames sets the
+    // screen orientation itself, so only lock it to landscape when we're elsewhere.
+    goFullscreenOnFirstTap(
+      async () => {
+        await initCrazyGamesSDK(); // find out where we're running before deciding
+        return !isOnCrazyGames();
+      },
+      () => !isOnCrazyGames(),
+    );
   }, []);
 
   // CrazyGames SDK start-up: report loading, learn what the platform allows,
@@ -140,6 +152,7 @@ export default function App() {
         setMuted('user', isSoundMutedSaved());
         setAdGated(isSdkUsable());
         setChatOff(isChatDisabled());
+        setInCrazyGamesApp(isCrazyGamesApp());
       }
 
       await loadAvatarList();
@@ -900,6 +913,7 @@ export default function App() {
       )}
 
       <SoundToggle />
+      <FullscreenToggle lockLandscape={!isOnCrazyGames()} hidden={inCrazyGamesApp} />
 
       {showConnecting && (
         <div className="absolute inset-0 z-[90] flex flex-col items-center justify-center gap-4 bg-ink/40 backdrop-blur-sm px-8 text-center">

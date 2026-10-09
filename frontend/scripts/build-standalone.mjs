@@ -118,13 +118,14 @@ async function main() {
   // Images and music, looked up by the game through assetUrl().
   const assets = {};
   for (const name of fs.readdirSync(publicDir)) {
-    if (name === 'bg-fakeart.webp' || name === 'favicon.svg' || name === 'icons.svg') continue;
+    if (name === 'bg-fakeart.webp' || name === 'favicon.svg' || name === 'icons.svg' || name.startsWith('icon-')) continue;
     if (MIME[path.extname(name).toLowerCase()]) assets[name] = dataUri(path.join(publicDir, name));
   }
 
   // Anything that would load from the internet or from other files is removed or embedded.
   html = html
     .replace(/<link[^>]*rel="preconnect"[^>]*>\s*/g, '')
+    .replace(/<link[^>]*rel="(?:manifest|apple-touch-icon)"[^>]*>\s*/g, '')
     .replace(/<link[^>]*fonts\.googleapis\.com[^>]*>\s*/g, '')
     .replace(/<script[^>]*src="https:\/\/sdk\.crazygames\.com[^"]*"[^>]*><\/script>\s*/g, '')
     .replace(/<link rel="icon"[^>]*>/, `<link rel="icon" type="image/svg+xml" href="${dataUri(path.join(publicDir, 'favicon.svg'))}" />`);

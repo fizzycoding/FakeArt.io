@@ -82,6 +82,14 @@ export const sfx = {
 
 /** Unlocks audio on the first tap and clicks on every enabled button. */
 export const initSfx = (): void => {
+  // iOS silences the audio when the player leaves the game or takes a call, and only
+  // lets it resume from a finished tap, so wake it on every touchend and click too.
+  const wake = () => {
+    getCtx();
+  };
+  document.addEventListener('touchend', wake, true);
+  document.addEventListener('click', wake, true);
+
   document.addEventListener(
     'pointerdown',
     (e) => {

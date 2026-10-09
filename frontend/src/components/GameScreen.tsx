@@ -30,8 +30,6 @@ interface GameScreenProps {
   chatMessages: ChatMessage[];
   onSendMessage: (text: string) => void;
   chatDisabled: boolean;
-  remoteStrokes: StrokeData[];
-  clearSignal: number;
   onSendStroke: (stroke: StrokeData) => void;
   onEndStroke: () => void;
 }
@@ -81,8 +79,6 @@ export default function GameScreen(props: GameScreenProps) {
             brushWidth={brushWidth}
             onSendStroke={props.onSendStroke}
             onEndStroke={props.onEndStroke}
-            remoteStrokes={props.remoteStrokes}
-            clearSignal={props.clearSignal}
           />
         </div>
 

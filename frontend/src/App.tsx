@@ -14,6 +14,7 @@ import { startBackgroundMusic } from './utils/music';
 import { initSfx, sfx } from './utils/sfx';
 import { setMuted } from './utils/audio';
 import { assetUrl } from './utils/assets';
+import { strokeStore } from './utils/strokeStore';
 import Avatar from './components/Avatar';
 import { DEFAULT_AVATAR, loadAvatarList, normalizeAvatar } from './utils/avatars';
 import MatchmakingScreen from './components/MatchmakingScreen';
@@ -98,8 +99,6 @@ export default function App() {
   const [roundNumber, setRoundNumber] = useState(1);
   const [maxMatches, setMaxMatches] = useState(1);
 
-  const [remoteStrokes, setRemoteStrokes] = useState<StrokeData[]>([]);
-  const [clearSignal, setClearSignal] = useState(0);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [votedTargetId, setVotedTargetId] = useState('');
   const [hasVoted, setHasVoted] = useState(false);
@@ -372,7 +371,7 @@ export default function App() {
         setRoundNumber(payload.roundNumber || 1);
         setMaxMatches(payload.maxMatches || 1);
         setPlayers(payload.players || []);
-        setRemoteStrokes([]);
+        strokeStore.reset([]);
         setChatMessages([]);
         setHasVoted(false);
         setVotedIds([]);
@@ -396,7 +395,7 @@ export default function App() {
         setActiveDrawerId(payload.activeDrawerId || '');
         setDrawRound(payload.drawRound || 1);
         setTotalDrawRounds(payload.totalRounds || 4);
-        setRemoteStrokes(payload.strokes || []);
+        strokeStore.reset(payload.strokes || []); // joined mid-game: show what's already drawn
         setChatMessages([]);
         setHasVoted(false);
         setVotedIds(payload.voted || []);
@@ -433,12 +432,11 @@ export default function App() {
         break;
 
       case 'SYNC_STROKE':
-        setRemoteStrokes((prev) => [...prev, payload]);
+        strokeStore.add(payload); // painted straight onto the canvas, no React re-render
         break;
 
       case 'CANVAS_CLEARED':
-        setRemoteStrokes([]);
-        setClearSignal((prev) => prev + 1);
+        strokeStore.reset([]);
         break;
 
       case 'VOTE_REJECTED':
@@ -649,7 +647,7 @@ export default function App() {
     setPlayers([]);
     setQueuePlayers([]);
     setLeftIds([]);
-    setRemoteStrokes([]);
+    strokeStore.reset([]);
     setChatMessages([]);
     setHasVoted(false);
     setVotedIds([]);
@@ -878,8 +876,6 @@ export default function App() {
             chatMessages={chatMessages}
             chatDisabled={chatOff}
             onSendMessage={handleSendMessage}
-            remoteStrokes={remoteStrokes}
-            clearSignal={clearSignal}
             onSendStroke={handleSendStroke}
             onEndStroke={handleEndStroke}
           />

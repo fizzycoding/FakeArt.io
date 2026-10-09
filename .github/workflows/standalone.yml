@@ -1,0 +1,94 @@
+# Builds the single-file version of the game (FakeArt.html) and publishes it.
+#
+#  - Every push that changes the frontend builds it and keeps it as a downloadable
+#    "FakeArt-standalone" artifact on the workflow run.
+#  - Pushing a tag that starts with "v" (for example v1.0.0) also attaches it to a
+#    GitHub Release.
+#  - It is also published as a web page with GitHub Pages. That needs a one-time
+#    setting: repository Settings > Pages > Source: "GitHub Actions" (and a public
+#    repository, unless the account has a paid plan). Until then that step just fails
+#    quietly and everything else still works.
+name: Standalone game
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/standalone.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: standalone-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Build the single-file game
+        run: npm run build:standalone -- --out=standalone/FakeArt.html
+
+      - name: Prepare the web page (the same file, named index.html)
+        run: |
+          mkdir -p pages
+          cp standalone/FakeArt.html pages/index.html
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FakeArt-standalone
+          path: frontend/standalone/FakeArt.html
+          if-no-files-found: error
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/pages
+
+  pages:
+    needs: build
+    runs-on: ubuntu-latest
+    # Don't mark the run as failed if Pages isn't switched on for this repository yet.
+    continue-on-error: true
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: FakeArt-standalone
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: FakeArt.io ${{ github.ref_name }}
+          body: |
+            Open **FakeArt.html** in any modern browser to play. It is one self-contained file
+            (code, styles, fonts, images and music are all inside); it only needs the internet
+            to reach the game server when you press Play.
+          files: FakeArt.html

@@ -13,6 +13,9 @@ services:
     # Render checks this address to know the server is up.
     healthCheckPath: /api/health
     autoDeployTrigger: commit
-    # Optional: let websites other than CrazyGames, localhost and the server's own
-    # address connect. Add it in the dashboard (Environment) if you need it:
-    #   ALLOWED_ORIGINS = https://my-own-site.example
+    envVars:
+      # Websites allowed to connect, besides CrazyGames, localhost and the server's own
+      # address. Comma-separated; add more here or in the dashboard (Environment).
+      # This one is where GitHub Pages serves the standalone game.
+      - key: ALLOWED_ORIGINS
+        value: https://fizzycoding.github.io
